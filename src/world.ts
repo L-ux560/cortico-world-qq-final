@@ -1818,6 +1818,174 @@ export class QQWorld implements World {
     return `已向 ${this.convLabel(address)} 发送 ${ok}/${total} 段。${tail}`;
   }
 
+  /** 探测某 host:port 是否已被监听（本地 ASR 侧车/音频桥可能已在运行）。 */
+  private portInUse(host: string, port: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const sock = createConnection({ host, port });
+      let done = false;
+      const finish = (v: boolean) => { if (!done) { done = true; sock.destroy(); resolve(v); } };
+      sock.once('connect', () => finish(true));
+      sock.once('error', () => finish(false));
+      sock.setTimeout(1000, () => finish(false));
+    });
+  }
+
+  /** 本地 ASR 侧车监听地址（asr.localPort）。 */
+  private asrHostPort(): { host: string; port: number } {
+    return { host: '127.0.0.1', port: this.config.asr.localPort || 8778 };
+  }
+
+  /** 在 extensions/{node_modules,packages}/* 下按目录扫描 asr_sidecar.py。不写死包名，改名或换目录布局都能找到。 */
+  private scanAsrScript(): string {
+    let dir = this.packageDir;
+    for (let i = 0; i < 6; i += 1) {
+      const ext = join(dir, 'extensions');
+      for (const sub of ['node_modules', 'packages']) {
+        const base = join(ext, sub);
+        if (!existsSync(base)) continue;
+        let names: string[] = [];
+        try { names = readdirSync(base); } catch { continue; }
+        for (const name of names) {
+          if (name.startsWith('.')) continue;
+          const c = join(base, name, 'asr_sidecar.py');
+          if (existsSync(c)) return c;
+        }
+      }
+      const up = dirname(dir);
+      if (up === dir) break;
+      dir = up;
+    }
+    return '';
+  }
+
+  /** 探测本地 ASR 侧车依赖：python 解释器 + asr_sidecar.py + 模型目录。不写死任何机器路径：全部由 asr.local* 配置与环境变量决定。 */
+  private resolveAsrSidecar(): { python: string; script: string; modelPath: string; engine: string } | null {
+    const asr = this.config.asr;
+    // 框架有时把 packageDir 指向 bots/<bot> 而非扩展目录，故回退多个"包相对"候选位置找脚本（不含任何绝对机器路径）
+    const scriptCands = [
+      join(this.packageDir, 'asr_sidecar.py'),
+      join(this.packageDir, 'src', 'asr_sidecar.py'),
+    ];
+    let script = '';
+    for (const c of scriptCands) {
+      if (existsSync(c)) { script = c; break; }
+    }
+    if (!script) script = this.scanAsrScript();
+    if (!script) {
+      this.log.warn('[asr-sidecar] 找不到 asr_sidecar.py，已尝试：' + scriptCands.join(' ; '));
+      return null;
+    }
+    // venv：显式配置 > 包相对探测（<扩展>/venv_vox 或 <扩展>/venv），不写死任何机器路径
+    let python = '';
+    const venv = (asr.localVenv || '').trim();
+    if (venv) {
+      python = join(venv, 'Scripts', 'python.exe');
+    } else {
+      const cands = [
+        join(this.packageDir, 'venv_vox', 'Scripts', 'python.exe'),
+        join(this.packageDir, 'venv', 'Scripts', 'python.exe'),
+      ];
+      python = cands.find((c) => existsSync(c)) || join(this.packageDir, 'venv_vox', 'Scripts', 'python.exe');
+    }
+    if (!existsSync(python)) {
+      this.log.warn('[asr-sidecar] 未找到 python 解释器：' + python + '（请在 asr.localVenv 配置 venv 目录，或把 venv 放到 <扩展>/venv_vox）');
+      return null;
+    }
+    // 引擎名先算：模型目录默认名与之相关。
+    const engine = (asr.localEngine || 'funasr').toLowerCase();
+    // 模型目录：显式配置 > 环境变量 QQBOT_ASR_MODEL_DIR > <扩展>/models/<默认模型名>。
+    // 默认模型名：sherpaOnnx 用 sherpa-onnx-sense-voice（约 228MB 量化版，需先下载）；
+    // 其余引擎（funasr 自动下载、vosk/fasterWhisper 需本地目录）留空，由 env 或 localModelPath 决定。
+    const defModelName = process.env.QQBOT_ASR_MODEL_NAME || (engine === 'sherpaonnx' ? 'sherpa-onnx-sense-voice' : '');
+    let modelPath = (asr.localModelPath || '').trim();
+    if (!modelPath || !existsSync(modelPath)) {
+      const mdCands = [
+        process.env.QQBOT_ASR_MODEL_DIR || '',
+        join(this.packageDir, 'models', defModelName),
+      ];
+      modelPath = mdCands.find((c) => c && existsSync(c)) || '';
+    }
+    // 模型目录可选的引擎（运行时自动下载/内置，无需本地目录）：集中登记，新增引擎在此加，
+    // 除此外的引擎（如 vosk/fasterWhisper）必须在 asr.localModelPath 提供有效目录。
+    const OPTIONAL_MODEL_ENGINES = ['funasr'];
+    const requireModel = !OPTIONAL_MODEL_ENGINES.includes(engine);
+    if (requireModel && (!modelPath || !existsSync(modelPath))) {
+      this.log.warn('[asr-sidecar] 未找到 ASR 模型目录（请在 asr.localModelPath 指定，或设置环境变量 QQBOT_ASR_MODEL_DIR）');
+      return null;
+    }
+    return { python, script, modelPath, engine: asr.localEngine };
+  }
+
+  /** 拉起本地 ASR 侧车子进程（若尚未运行且端口空闲）。返回本次是否"新拉起"。 */
+  private async ensureAsrSidecarLaunched(): Promise<boolean> {
+    if (this.asrSidecar && this.asrSidecar.exitCode === null && this.asrSidecar.signalCode === null) return false;
+    const { host, port } = this.asrHostPort();
+    if (await this.portInUse(host, port)) {
+      this.log.warn(`[asr-sidecar] 端口 ${port} 已被占用（侧车可能已在运行），跳过拉起`);
+      return false;
+    }
+    const info = this.resolveAsrSidecar();
+    if (!info) {
+      this.log.warn('[asr-sidecar] 依赖不全，跳过自动拉起；请检查 asr.local* 配置，或手动启动侧车');
+      return false;
+    }
+    try {
+      const logFile = join(dirname(info.script), 'asr_sidecar.log');
+      const logf = openSync(logFile, 'a');
+      this.asrSidecar = spawn(
+        info.python,
+        [info.script, String(port), '--engine', info.engine, '--model-dir', info.modelPath],
+        {
+          cwd: dirname(info.script),
+          env: { ...process.env } as Record<string, string>,
+          stdio: ['ignore', logf, logf],
+          detached: true,
+          windowsHide: true,
+        },
+      );
+      this.asrSidecar.unref();
+      this.asrSidecar.on('exit', (code, sig) => {
+        this.log.warn(`[asr-sidecar] 子进程退出 code=${code} signal=${sig}`);
+        if (this.asrSidecar && this.asrSidecar.exitCode !== null) this.asrSidecar = null;
+      });
+      this.log.warn(`[asr-sidecar] 已拉起 asr_sidecar.py (pid=${this.asrSidecar.pid})，加载模型中，等待 /health ready…`);
+      return true;
+    } catch (e) {
+      this.log.warn('[asr-sidecar] 拉起失败：' + String(e));
+      this.asrSidecar = null;
+      return false;
+    }
+  }
+
+  /** 本地 ASR 侧车是否就绪（/health ready=true）。 */
+  private async isAsrReady(): Promise<boolean> {
+    const { host, port } = this.asrHostPort();
+    try {
+      const r = await fetch(`http://${host}:${port}/health`, { signal: AbortSignal.timeout(3000) });
+      if (!r.ok) return false;
+      const j = (await r.json().catch(() => null)) as { ready?: boolean } | null;
+      return !!j && j.ready === true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** 确保本地 ASR 侧车就绪：已就绪直接返回地址；否则拉起并轮询 /health（新拉起给更长加载时间）。返回 null 表示失败。 */
+  private async ensureAsrSidecarAndReady(): Promise<string | null> {
+    const { host, port } = this.asrHostPort();
+    const base = `http://${host}:${port}`;
+    if (await this.isAsrReady()) return base;
+    const launched = await this.ensureAsrSidecarLaunched();
+    const timeoutSec = launched ? 60 : 8; // 新拉起（尤其 faster-whisper 首次）给更长加载时间
+    const deadline = Date.now() + timeoutSec * 1000;
+    while (Date.now() < deadline) {
+      if (await this.isAsrReady()) return base;
+      await sleep(800);
+    }
+    this.log.warn('[asr-sidecar] 等待 /health ready 超时');
+    return null;
+  }
+
   /** 包装宿主：在 pushEvent 后向控制台事件流广播（仅广播本扩展产生的事件）。 */
   private wrapHost(host: WorldHost): WorldHost {
     const base = host;
