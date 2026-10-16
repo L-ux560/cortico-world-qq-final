@@ -1,0 +1,56 @@
+{
+  "name": "cortico-world-qq-final",
+  "version": "0.2.1",
+  "description": "Cortico World 扩展：QQ（OneBot v11 / NapCat）适配器。",
+  "type": "module",
+  "main": "./src/index.ts",
+  "files": [
+    "src",
+    "dist",
+    "describe.json",
+    "README.md",
+    "ENV_PROMPT.md",
+    "asr_sidecar.py",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hth768/cortico-world-qq-final.git"
+  },
+  "homepage": "https://github.com/hth768/cortico-world-qq-final#readme",
+  "bugs": {
+    "url": "https://github.com/hth768/cortico-world-qq-final/issues"
+  },
+  "license": "MIT",
+  "keywords": [
+    "cortico-world",
+    "qq",
+    "onebot",
+    "napcat"
+  ],
+  "cortico": {
+    "kind": "world",
+    "api": 6,
+    "label": "QQ_bot",
+    "webUiClient": "dist/console.js",
+    "webUiStyle": "dist/console.css",
+    "describe": "describe.json"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "tsc --noEmit -p tsconfig.json",
+    "build:console": "node scripts/build-console.mjs",
+    "test": "node --test tests/normalize.test.ts tests/config.test.ts"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.5.13",
+    "typescript": "^5.7.0"
+  }
+}
