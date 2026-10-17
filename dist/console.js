@@ -1,5 +1,5 @@
 // src/console/client.ts
-var TUTORIAL_URL = "https://github.com/hth768/cortico-world-qq-final/blob/main/docs/\u6559\u7A0B.md";
+var TUTORIAL_URL = "https://github.com/hth768/cortico-world-qq-final/blob/main/docs/guide.md";
 var MODULES = [
   { id: "general", title: "\u8FDE\u63A5\u4E0E\u76D1\u542C", desc: "OneBot \u8FDE\u63A5\u53C2\u6570\u4E0E\u76D1\u542C\u540D\u5355\uFF1B\u8FDE\u63A5\u7C7B\u6539\u52A8\u9700\u91CD\u542F\u751F\u6548\u3002", group: "world:qqbot", prefix: "", topOnly: true },
   { id: "vision", title: "\u89C6\u89C9", desc: "\u8F85\u52A9\u89C6\u89C9\uFF08VLM\uFF09\uFF1A\u63A5\u6536\u56FE\u7247\u65F6\u7528\u89C6\u89C9\u6A21\u578B\u7406\u89E3\u3002", group: "world:qqbot", prefix: "worlds.qqbot.vision.", topOnly: false },
