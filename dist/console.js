@@ -1,4 +1,5 @@
 // src/console/client.ts
+var TUTORIAL_URL = "https://github.com/hth768/cortico-world-qq-final#%E6%8E%A5%E5%85%A5%E6%95%99%E7%A8%8B";
 var MODULES = [
   { id: "general", title: "\u8FDE\u63A5\u4E0E\u76D1\u542C", desc: "OneBot \u8FDE\u63A5\u53C2\u6570\u4E0E\u76D1\u542C\u540D\u5355\uFF1B\u8FDE\u63A5\u7C7B\u6539\u52A8\u9700\u91CD\u542F\u751F\u6548\u3002", group: "world:qqbot", prefix: "", topOnly: true },
   { id: "vision", title: "\u89C6\u89C9", desc: "\u8F85\u52A9\u89C6\u89C9\uFF08VLM\uFF09\uFF1A\u63A5\u6536\u56FE\u7247\u65F6\u7528\u89C6\u89C9\u6A21\u578B\u7406\u89E3\u3002", group: "world:qqbot", prefix: "worlds.qqbot.vision.", topOnly: false },
@@ -169,6 +170,51 @@ function makePanel(m) {
             statusBox.textContent = "\u72B6\u6001\u8BFB\u53D6\u5931\u8D25";
           }
         );
+      }
+      if (m.id === "general") {
+        const bar = ui.rowbar();
+        const link = document.createElement("a");
+        link.href = TUTORIAL_URL;
+        link.target = "_blank";
+        link.rel = "noreferrer noopener";
+        link.textContent = "\u{1F4D8} \u4F7F\u7528\u6559\u7A0B";
+        link.style.fontSize = "13px";
+        link.style.textDecoration = "none";
+        link.style.color = "var(--accent, #16a34a)";
+        link.title = "\u65B0\u7A97\u53E3\u6253\u5F00\u63A5\u5165\u6559\u7A0B";
+        bar.appendChild(link);
+        const restart = ui.button("\u91CD\u542F\u8FDE\u63A5", {
+          size: "sm",
+          title: "\u6309\u5F53\u524D\u914D\u7F6E\u91CD\u5EFA OneBot \u8FDE\u63A5\uFF08\u6539\u5B8C\u8FDE\u63A5\u53C2\u6570\u70B9\u4E00\u4E0B\u5373\u53EF\u751F\u6548\uFF09",
+          onClick: () => {
+            restart.disabled = true;
+            restart.textContent = "\u91CD\u542F\u4E2D\u2026";
+            void ctx.invoke("restartConnection", []).then(
+              (r) => {
+                const res = r;
+                const msg = res?.message ?? (res?.ok ? "\u5DF2\u91CD\u542F\u8FDE\u63A5\u3002" : "\u91CD\u542F\u5931\u8D25\u3002");
+                toast(msg);
+                if (res?.target) restart.textContent = `\u5DF2\u91CD\u542F \xB7 ${res.target}`;
+              },
+              (e) => {
+                toast("\u91CD\u542F\u5931\u8D25\uFF1A" + (e instanceof Error ? e.message : String(e)));
+              }
+            ).finally(() => {
+              restart.disabled = false;
+              setTimeout(() => {
+                restart.textContent = "\u91CD\u542F\u8FDE\u63A5";
+              }, 4e3);
+            });
+          }
+        });
+        bar.appendChild(restart);
+        sheet.body.appendChild(bar);
+        const tip = document.createElement("div");
+        tip.style.fontSize = "12px";
+        tip.style.opacity = "0.7";
+        tip.style.margin = "0 0 10px";
+        tip.innerHTML = "\u9ED8\u8BA4\u662F<b>\u53CD\u5411\u8FDE\u63A5</b>\uFF1A\u684C\u5BA0\u5F00\u76D1\u542C\u3001NapCat \u4E3B\u52A8\u8FDE\u5165\uFF0C\u6B64\u65F6 <b>OneBot Token \u7559\u7A7A</b>\u5373\u53EF\u3002\u53EA\u6709\u6539\u6210\u300C\u6B63\u5411\u8FDE\u63A5\u300D\u65F6\u624D\u9700\u8981\u586B Token\uFF08\u586B NapCat \u91CC<b>\u6B63\u5411 WS \u670D\u52A1\u5668</b>\u90A3\u4E2A\uFF09\u3002";
+        sheet.body.appendChild(tip);
       }
       if (m.extra === "asr") {
         const dl = ui.button("\u4E0B\u8F7D/\u6821\u9A8C ASR \u6A21\u578B", {

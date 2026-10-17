@@ -169,13 +169,14 @@ export class QQWorld implements World {
   }
 
   // ---- 生命周期 ----
-  async start(host: WorldHost): Promise<void> {
-    this.host = this.wrapHost(host);
-    this.log = this.host.log.child('qq');
-    this.vision = new Vision(this.config.vision, this.log, this.dataDir);
-    this.stickers = new StickerStore(this.stickerDirAbs || this.emojiDirAbs || join(this.packageDir, 'emoji'), this.config.vision, this.log, this.dataDir);
-    this.syncConfigRoster();
-    this.driver = new OneBotDriver({
+
+  /**
+   * 按**当前**配置新建 OneBot driver。连接类配置（模式/地址/端口/路径/Token）改了之后，
+   * 靠 {@link restartConnection} 重建 driver 即可生效，不必整进程重启。
+   * 注意 config 是 ctx.cfg 的同一引用（normalizeConfig 原地补全），这里读到的就是最新值。
+   */
+  private createDriver(): OneBotDriver {
+    return new OneBotDriver({
       mode: this.config.mode,
       wsUrl: this.config.wsUrl,
       wsHost: this.config.wsHost,
@@ -192,6 +193,63 @@ export class QQWorld implements World {
         }
       },
     });
+  }
+
+  /**
+   * 用当前配置重建 OneBot 连接（控制台「重启连接」按钮）。
+   * 只换 driver，会话状态/存储/定时器都不动——比整进程重启轻得多，改完连接参数点一下即可。
+   */
+  async restartConnection(): Promise<{ ok: boolean; mode: string; target: string; message: string }> {
+    const prev = this.driver;
+    this.driver = null;
+    this.connected = false;
+    if (prev) {
+      try {
+        await prev.stop();
+      } catch (e) {
+        this.log.warn('重启连接时关闭旧连接失败', { err: String(e) });
+      }
+    }
+    const driver = this.createDriver();
+    this.driver = driver;
+    // syncConfigRoster 让监听名单的增删立即反映到会话集合（不需要重启也能加群/加私聊）。
+    this.syncConfigRoster();
+    try {
+      await driver.start();
+    } catch (e) {
+      this.log.warn('重启连接失败', { err: String(e) });
+      return {
+        ok: false,
+        mode: this.config.mode,
+        target: this.describeWsTarget(),
+        message: `重启失败：${e instanceof Error ? e.message : String(e)}`,
+      };
+    }
+    return {
+      ok: true,
+      mode: this.config.mode,
+      target: this.describeWsTarget(),
+      message: this.config.mode === 'reverse'
+        ? '已按当前配置重启反向监听，等待 NapCat 连入。'
+        : '已按当前配置重启正向连接。',
+    };
+  }
+
+  /** 当前连接目标的可读描述，用于面板回显（不暴露 Token）。 */
+  private describeWsTarget(): string {
+    const c = this.config;
+    return c.mode === 'reverse'
+      ? `reverse ${c.wsHost}:${c.wsPort}${c.wsPath}`
+      : `forward ${c.wsUrl}`;
+  }
+
+  async start(host: WorldHost): Promise<void> {
+    this.host = this.wrapHost(host);
+    this.log = this.host.log.child('qq');
+    this.vision = new Vision(this.config.vision, this.log, this.dataDir);
+    this.stickers = new StickerStore(this.stickerDirAbs || this.emojiDirAbs || join(this.packageDir, 'emoji'), this.config.vision, this.log, this.dataDir);
+    this.syncConfigRoster();
+    this.driver = this.createDriver();
     await this.driver.start();
     this.loadState();
     this.initProactive();
@@ -3025,15 +3083,19 @@ export class QQWorld implements World {
       { id: 'asr', title: '语音模型', description: 'ASR 引擎与模型下载：sherpa-onnx int8 量化版约 228MB，省内存更快。', group: 'world:qqbot-asr', prefix: '', topOnly: false, status: 'getAsrModelState', extra: 'asr' },
     ];
     const activeModulePanels = modulePanels;
+    const toPanelDecl = (m: (typeof modulePanels)[number]): WorldPanelDecl => ({
+      id: m.id,
+      title: m.title,
+      description: m.description,
+      getMethods: ['config', ...(m.id === 'general' ? ['restartConnection'] : []), ...(m.status ? [m.status] : []), ...(m.extra === 'asr' ? ['downloadAsrModel'] : [])],
+    });
+    // 面板顺序：连接与监听排第一（装完扩展第一件事就是配连接与监听），监听名单排第二，
+    // 其余模块与「实时事件」保持原有相对顺序。
     const panels: WorldPanelDecl[] = [
+      ...activeModulePanels.filter((m) => m.id === 'general').map(toPanelDecl),
       { id: 'roster', title: '监听名单', description: '当前监听的群与私聊及未读情况。', getMethods: ['getRoster'] },
+      ...activeModulePanels.filter((m) => m.id !== 'general').map(toPanelDecl),
       { id: 'events', title: '实时事件', description: 'QQ 消息与通知的实时流。' },
-      ...activeModulePanels.map((m) => ({
-        id: m.id,
-        title: m.title,
-        description: m.description,
-        getMethods: ['config', ...(m.status ? [m.status] : []), ...(m.extra === 'asr' ? ['downloadAsrModel'] : [])],
-      })),
     ];
     return {
       label: 'QQ 群聊',
@@ -3233,6 +3295,7 @@ export class QQWorld implements World {
   }
 
   private async invoke(panel: string, method: string, args: unknown[]): Promise<unknown> {
+    if (method === 'restartConnection') return this.restartConnection();
     if (panel === 'roster' && method === 'getRoster') {
       const list = [...this.convs.values()].map((c) => ({
         address: c.address,

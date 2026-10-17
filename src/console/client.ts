@@ -17,6 +17,13 @@ type FieldDef = {
 type SchemaResp = { groupId: string; title?: string; properties: FieldDef[]; values: Record<string, unknown> };
 type ModuleSpec = { id: string; title: string; desc: string; group: string; prefix: string; topOnly: boolean; status?: string; extra?: string };
 
+/**
+ * 「使用教程」链接指向的地址。面板资源路由只放行 manifest 声明的脚本/样式，
+ * 教程 HTML 没法从扩展目录伺服，所以这里给一个外部地址；
+ * 想换成自己那份，把这个常量改掉重新构建即可。
+ */
+const TUTORIAL_URL = 'https://github.com/hth768/cortico-world-qq-final#%E6%8E%A5%E5%85%A5%E6%95%99%E7%A8%8B';
+
 // 与 world.ts modulePanels 对应
 const MODULES: ModuleSpec[] = [
   { id: 'general', title: '连接与监听', desc: 'OneBot 连接参数与监听名单；连接类改动需重启生效。', group: 'world:qqbot', prefix: '', topOnly: true },
@@ -188,6 +195,55 @@ function makePanel(m: ModuleSpec): WebUiPanel {
           (st) => { statusBox.textContent = statusText(st as Record<string, unknown>); },
           () => { statusBox.textContent = '状态读取失败'; },
         );
+      }
+
+      // 连接与监听：顶部放「使用教程」链接 + 「重启连接」按钮。
+      // 连接类配置改了之后点一下重启即可生效，不必整进程重启。
+      if (m.id === 'general') {
+        const bar = ui.rowbar();
+
+        const link = document.createElement('a');
+        link.href = TUTORIAL_URL;
+        link.target = '_blank';
+        link.rel = 'noreferrer noopener';
+        link.textContent = '📘 使用教程';
+        link.style.fontSize = '13px';
+        link.style.textDecoration = 'none';
+        link.style.color = 'var(--accent, #16a34a)';
+        link.title = '新窗口打开接入教程';
+        bar.appendChild(link);
+
+        const restart = ui.button('重启连接', {
+          size: 'sm',
+          title: '按当前配置重建 OneBot 连接（改完连接参数点一下即可生效）',
+          onClick: () => {
+            restart.disabled = true;
+            restart.textContent = '重启中…';
+            void ctx.invoke('restartConnection', []).then(
+              (r) => {
+                const res = r as { ok?: boolean; message?: string; target?: string } | undefined;
+                const msg = res?.message ?? (res?.ok ? '已重启连接。' : '重启失败。');
+                toast(msg);
+                if (res?.target) restart.textContent = `已重启 · ${res.target}`;
+              },
+              (e: unknown) => { toast('重启失败：' + (e instanceof Error ? e.message : String(e))); },
+            ).finally(() => {
+              restart.disabled = false;
+              setTimeout(() => { restart.textContent = '重启连接'; }, 4000);
+            });
+          },
+        });
+        bar.appendChild(restart);
+        sheet.body.appendChild(bar);
+
+        const tip = document.createElement('div');
+        tip.style.fontSize = '12px';
+        tip.style.opacity = '0.7';
+        tip.style.margin = '0 0 10px';
+        tip.innerHTML =
+          '默认是<b>反向连接</b>：桌宠开监听、NapCat 主动连入，此时 <b>OneBot Token 留空</b>即可。' +
+          '只有改成「正向连接」时才需要填 Token（填 NapCat 里<b>正向 WS 服务器</b>那个）。';
+        sheet.body.appendChild(tip);
       }
 
       // ASR 下载按钮（额外）
