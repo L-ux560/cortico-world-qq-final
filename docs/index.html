@@ -1,0 +1,968 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>让桌宠接入 QQ · 图文教程</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%90%B3%3C/text%3E%3C/svg%3E">
+<style>
+  *,*::before,*::after{box-sizing:border-box}
+  :root{
+    --bg:#f6f8fd;
+    --panel:#ffffff;
+    --ink:#1b2333;
+    --ink-2:#455065;
+    --muted:#7a8698;
+    --line:#e4eaf4;
+    --line-2:#eef2f9;
+    --brand:#4a6cf7;
+    --brand-2:#8b5cf6;
+    --brand-soft:#eef2ff;
+    --orange:#e8720c;
+    --orange-soft:#fff5ec;
+    --green:#0f9d76;
+    --green-soft:#ecfdf5;
+    --radius:16px;
+    --font:system-ui,-apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  html{scroll-behavior:smooth;scroll-padding-top:28px;-webkit-text-size-adjust:100%}
+  body{
+    margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);
+    font-size:16px;line-height:1.85;letter-spacing:.01em;
+    -webkit-font-smoothing:antialiased;
+  }
+  img{max-width:100%;display:block}
+  a{color:var(--brand);text-decoration:none}
+  a:hover{text-decoration:underline}
+  code{
+    font-family:var(--mono);font-size:.88em;background:#f2f5fd;
+    border:1px solid #e2e9fb;border-radius:6px;padding:.12em .38em;color:#324a9c;
+    word-break:break-all;
+  }
+  .wrap{width:100%;max-width:1120px;margin:0 auto;padding:0 28px}
+
+  /* ---------- 阅读进度 ---------- */
+  .progress{
+    position:fixed;top:0;left:0;height:3px;width:0;z-index:100;
+    background:linear-gradient(90deg,var(--brand),var(--brand-2));
+    box-shadow:0 0 12px rgba(74,108,247,.5);transition:width .1s linear;
+  }
+
+  /* ---------- Hero ---------- */
+  .hero{
+    position:relative;overflow:hidden;border-bottom:1px solid var(--line);
+    background:
+      radial-gradient(820px 360px at 8% -14%,#e3ecff 0%,rgba(227,236,255,0) 62%),
+      radial-gradient(700px 320px at 92% -6%,#f2ebff 0%,rgba(242,235,255,0) 58%),
+      linear-gradient(180deg,#fcfdff 0%,#f6f9ff 100%);
+    padding:62px 0 54px;
+  }
+  .hero .whale{
+    position:absolute;right:3%;top:18px;font-size:196px;line-height:1;
+    opacity:.10;transform:rotate(-6deg);pointer-events:none;user-select:none;
+    filter:saturate(1.2);
+  }
+  .hero-inner{position:relative;z-index:1}
+  .eyebrow{
+    display:inline-flex;align-items:center;gap:8px;
+    font-size:13px;font-weight:600;color:#3f57c4;letter-spacing:.06em;
+    background:#fff;border:1px solid #dde6ff;border-radius:999px;
+    padding:5px 14px;box-shadow:0 2px 10px -6px rgba(63,87,196,.6);
+  }
+  .hero h1{
+    margin:20px 0 16px;font-size:clamp(30px,4.4vw,46px);line-height:1.24;
+    letter-spacing:-.01em;font-weight:800;
+  }
+  .hero h1 .hl{
+    background:linear-gradient(180deg,transparent 62%,#d9e3ff 62%,#d9e3ff 92%,transparent 92%);
+    padding:0 .1em;
+  }
+  .lede{margin:0;font-size:17px;color:var(--ink-2);max-width:620px}
+  .chips{display:flex;flex-wrap:wrap;gap:10px;margin-top:26px}
+  .chip{
+    font-size:13px;color:var(--ink-2);background:#fff;border:1px solid var(--line);
+    border-radius:999px;padding:5px 13px;box-shadow:0 1px 2px rgba(20,30,60,.03);
+  }
+  .hero-actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:30px}
+  .btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:8px;
+    font-family:inherit;font-size:14.5px;font-weight:600;line-height:1;
+    padding:12px 22px;border-radius:10px;border:1px solid transparent;
+    cursor:pointer;transition:transform .15s,box-shadow .15s,background .15s;
+  }
+  .btn:active{transform:translateY(1px)}
+  .btn.primary{
+    color:#fff;background:linear-gradient(135deg,var(--brand),#5a5cf0);
+    box-shadow:0 8px 20px -10px rgba(74,108,247,.9);
+  }
+  .btn.primary:hover{text-decoration:none;box-shadow:0 12px 26px -10px rgba(74,108,247,.95)}
+  .btn.ghost{color:var(--ink-2);background:#fff;border-color:var(--line)}
+  .btn.ghost:hover{background:#fbfcff}
+
+  /* ---------- 布局 ---------- */
+  .layout{
+    display:grid;grid-template-columns:250px minmax(0,1fr);gap:52px;
+    padding-top:46px;padding-bottom:80px;align-items:start;
+  }
+
+  /* ---------- 目录 ---------- */
+  .toc-wrap{position:sticky;top:26px}
+  .toc{
+    background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:18px 16px;max-height:calc(100vh - 52px);overflow:auto;
+    box-shadow:0 1px 2px rgba(20,30,60,.03);
+    scrollbar-width:thin;
+  }
+  .toc::-webkit-scrollbar{width:6px}
+  .toc::-webkit-scrollbar-thumb{background:#dde4f0;border-radius:99px}
+  .toc-title{
+    margin:0 0 10px;font-size:12px;font-weight:700;color:var(--muted);
+    letter-spacing:.14em;
+  }
+  .toc ol{list-style:none;margin:0;padding:0}
+  .toc > ol > li{margin:0 0 4px}
+  .toc a{
+    display:block;padding:5px 10px;border-radius:8px;font-size:13.5px;
+    color:var(--ink-2);line-height:1.5;border-left:2px solid transparent;
+    transition:background .15s,color .15s;
+  }
+  .toc a:hover{background:#f6f8fe;color:var(--brand);text-decoration:none}
+  .toc a.active{
+    background:var(--brand-soft);color:#2f4bc0;font-weight:600;
+    border-left-color:var(--brand);
+  }
+  .toc > ol > li > a{font-weight:600;font-size:14px;color:var(--ink);margin-top:6px}
+  .toc ol ol{margin:0 0 8px;padding-left:6px}
+  .toc ol ol a{font-size:13px;padding:4px 10px 4px 20px;color:#6b7789}
+  .toc ol ol a.active{color:#2f4bc0}
+  .toc-toggle{
+    display:none;width:100%;align-items:center;justify-content:space-between;
+    background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:12px 16px;font-family:inherit;font-size:14px;font-weight:600;
+    color:var(--ink);cursor:pointer;
+  }
+
+  /* ---------- 正文 ---------- */
+  main{min-width:0}
+  main > section{margin-bottom:56px}
+  .sec-head{margin-bottom:26px}
+  .sec-head .kicker{
+    display:block;font-size:12.5px;font-weight:700;color:var(--brand);
+    letter-spacing:.12em;margin-bottom:8px;
+  }
+  .sec-head h2{
+    margin:0 0 10px;font-size:clamp(22px,2.6vw,28px);line-height:1.35;
+    font-weight:750;letter-spacing:-.005em;
+  }
+  .sec-head p{margin:0;color:var(--ink-2);font-size:15.5px}
+
+  .lead-card{
+    background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    padding:26px 28px;box-shadow:0 1px 2px rgba(20,30,60,.03);
+  }
+  .lead-card p{margin:0 0 14px;color:var(--ink-2);font-size:15.5px}
+  .lead-card p:last-child{margin-bottom:0}
+  .lead-card strong{color:var(--ink);font-weight:650}
+
+  .req{list-style:none;margin:18px 0 0;padding:0;display:grid;gap:9px}
+  .req li{display:flex;gap:10px;align-items:flex-start;font-size:15px;color:var(--ink-2)}
+  .req li::before{
+    content:"";flex:none;width:6px;height:6px;border-radius:50%;
+    background:var(--brand);margin-top:.65em;
+  }
+
+  /* ---------- 步骤时间线 ---------- */
+  .steps{position:relative}
+  .steps::before{
+    content:"";position:absolute;left:21px;top:26px;bottom:26px;width:2px;
+    background:linear-gradient(180deg,#d7e1ff,#e6e0ff 55%,#f0eaff);border-radius:2px;
+  }
+  .step{display:grid;grid-template-columns:44px minmax(0,1fr);gap:20px;margin-bottom:34px}
+  .step:last-child{margin-bottom:0}
+  .dot{
+    position:relative;z-index:1;width:44px;height:44px;border-radius:50%;
+    display:grid;place-items:center;background:#fff;border:1.5px solid #dde5f8;
+    color:#3d5bd4;font-weight:750;font-size:15px;
+    box-shadow:0 3px 10px -6px rgba(61,91,212,.7);
+  }
+  .step.optional .dot{border-style:dashed;color:var(--brand-2)}
+  .step-body{padding-top:3px;min-width:0}
+  .step-body h3{
+    margin:0 0 10px;font-size:18.5px;line-height:1.5;font-weight:700;
+    letter-spacing:-.002em;
+  }
+  .step-body h3 .badge{
+    display:inline-block;vertical-align:2px;margin-left:8px;
+    font-size:11.5px;font-weight:600;color:var(--brand-2);
+    background:#f5f1ff;border:1px solid #e7deff;border-radius:999px;
+    padding:2px 9px;letter-spacing:.04em;
+  }
+  .step-body p{margin:0 0 12px;color:var(--ink-2);font-size:15.5px}
+  .step-body p:last-child{margin-bottom:0}
+  .step-body strong{color:var(--ink);font-weight:650}
+  .do{list-style:none;margin:0 0 16px;padding:0;display:grid;gap:9px}
+  .do li{position:relative;padding-left:22px;font-size:15.5px;color:var(--ink-2)}
+  .do li::before{
+    content:"";position:absolute;left:2px;top:.72em;width:7px;height:7px;
+    border-radius:2px;background:#c8d4f5;transform:rotate(45deg);
+  }
+  .do li strong{color:var(--ink)}
+
+  /* ---------- 截图 ---------- */
+  .shot{
+    margin:16px 0 8px;border-radius:14px;overflow:hidden;
+    border:1px solid var(--line);background:#f2f5fa;
+    box-shadow:0 10px 30px -18px rgba(20,30,60,.35);
+    cursor:zoom-in;position:relative;transition:transform .2s,box-shadow .2s;
+  }
+  .shot:hover{transform:translateY(-2px);box-shadow:0 16px 38px -18px rgba(20,30,60,.4)}
+  .shot img{width:100%;height:auto}
+  .shot::after{
+    content:"点击放大";position:absolute;right:10px;bottom:10px;
+    font-size:11.5px;line-height:1;color:#fff;background:rgba(24,32,48,.62);
+    padding:6px 10px;border-radius:999px;opacity:0;transition:opacity .2s;
+    backdrop-filter:blur(4px);
+  }
+  .shot:hover::after{opacity:1}
+
+  /* ---------- 提示块 ---------- */
+  .callout{
+    display:flex;gap:12px;align-items:flex-start;margin:16px 0;
+    padding:14px 16px;border-radius:12px;font-size:14.8px;line-height:1.75;
+    border:1px solid;color:var(--ink-2);
+  }
+  .callout .ico{flex:none;font-size:16px;line-height:1.6}
+  .callout strong{color:var(--ink)}
+  .callout.tip{background:#f3f7ff;border-color:#dbe6ff}
+  .callout.warn{background:var(--orange-soft);border-color:#fbe0c6}
+  .callout.ok{background:var(--green-soft);border-color:#c8f0e0}
+  .callout p{margin:0}
+  .callout code{background:#fff}
+
+  /* ---------- 代码 ---------- */
+  .code{
+    display:flex;align-items:center;gap:12px;justify-content:space-between;
+    margin:12px 0;padding:10px 10px 10px 15px;border-radius:11px;
+    background:#f4f7ff;border:1px solid #dde6fb;
+  }
+  .code code{
+    background:none;border:none;padding:0;font-size:14px;color:#26397e;
+    letter-spacing:.01em;
+  }
+  .copy{
+    flex:none;font-family:inherit;font-size:12.5px;font-weight:600;
+    color:#3d5bd4;background:#fff;border:1px solid #d5e0fb;border-radius:7px;
+    padding:6px 12px;cursor:pointer;transition:all .15s;
+  }
+  .copy:hover{background:#eef3ff;border-color:#bed0f8}
+  .copy.done{color:var(--green);border-color:#bdebd9;background:#f2fdf9}
+
+  /* ---------- 检查清单 ---------- */
+  .checklist{
+    background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    padding:10px 24px;box-shadow:0 1px 2px rgba(20,30,60,.03);
+  }
+  .check-item{
+    display:flex;gap:13px;align-items:flex-start;padding:13px 0;
+    border-bottom:1px solid var(--line-2);cursor:pointer;font-size:15.3px;
+    color:var(--ink-2);transition:color .15s;
+  }
+  .check-item:last-child{border-bottom:none}
+  .check-item input{
+    appearance:none;-webkit-appearance:none;flex:none;width:19px;height:19px;
+    margin:3px 0 0;border:1.6px solid #c9d4ea;border-radius:6px;background:#fff;
+    cursor:pointer;position:relative;transition:all .15s;
+  }
+  .check-item input:hover{border-color:#a9bce8}
+  .check-item input:checked{
+    background:linear-gradient(135deg,var(--brand),var(--brand-2));
+    border-color:transparent;
+  }
+  .check-item input:checked::after{
+    content:"";position:absolute;left:6px;top:2.5px;width:4px;height:9px;
+    border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg);
+  }
+  .check-item input:checked + span{color:#98a3b4;text-decoration:line-through}
+  .check-note{font-size:13px;color:var(--muted);margin:12px 0 20px}
+
+  /* ---------- FAQ ---------- */
+  .faq-item{
+    background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    margin-bottom:10px;overflow:hidden;transition:border-color .2s;
+  }
+  .faq-item[open]{border-color:#cfdcfb}
+  .faq-item summary{
+    list-style:none;cursor:pointer;padding:15px 20px;font-size:15.3px;
+    font-weight:600;color:var(--ink);display:flex;align-items:center;
+    justify-content:space-between;gap:14px;
+  }
+  .faq-item summary::-webkit-details-marker{display:none}
+  .faq-item summary::after{
+    content:"+";flex:none;color:#9aa8c2;font-size:18px;font-weight:400;
+    line-height:1;transition:transform .2s;
+  }
+  .faq-item[open] summary::after{transform:rotate(45deg);color:var(--brand)}
+  .faq-body{padding:0 20px 16px;font-size:15px;color:var(--ink-2)}
+  .faq-body p{margin:0 0 10px}
+  .faq-body p:last-child{margin-bottom:0}
+  .faq-body ol,.faq-body ul{margin:0 0 10px;padding-left:20px}
+
+  /* ---------- 页脚 ---------- */
+  footer{
+    border-top:1px solid var(--line);padding:30px 0 46px;
+    font-size:13.5px;color:var(--muted);
+  }
+  footer .wrap{display:flex;flex-wrap:wrap;gap:8px 22px;align-items:center;justify-content:space-between}
+
+  /* ---------- 回顶 ---------- */
+  #toTop{
+    position:fixed;right:26px;bottom:26px;width:44px;height:44px;border-radius:50%;
+    display:grid;place-items:center;background:#fff;border:1px solid var(--line);
+    box-shadow:0 8px 22px -12px rgba(20,30,60,.5);color:var(--brand);
+    cursor:pointer;opacity:0;pointer-events:none;transform:translateY(8px);
+    transition:all .22s;font-size:16px;z-index:60;
+  }
+  #toTop.show{opacity:1;pointer-events:auto;transform:none}
+  #toTop:hover{background:#f7f9ff}
+
+  /* ---------- 灯箱 ---------- */
+  #lightbox{
+    position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;
+    background:rgba(12,18,32,.88);backdrop-filter:blur(6px);padding:32px;
+    opacity:0;pointer-events:none;transition:opacity .22s;
+  }
+  #lightbox.open{opacity:1;pointer-events:auto}
+  #lightbox img{
+    max-width:100%;max-height:100%;border-radius:10px;cursor:zoom-out;
+    box-shadow:0 30px 80px -30px rgba(0,0,0,.8);transform:scale(.97);
+    transition:transform .22s;
+  }
+  #lightbox.open img{transform:scale(1)}
+  #lightbox .hint{
+    position:absolute;bottom:18px;left:50%;transform:translateX(-50%);
+    color:rgba(255,255,255,.6);font-size:12.5px;letter-spacing:.05em;
+  }
+
+  /* ---------- 响应式 ---------- */
+  @media (max-width:1000px){
+    .wrap{padding:0 20px}
+    .layout{grid-template-columns:1fr;gap:24px;padding-top:24px}
+    .toc-wrap{position:static}
+    .toc-toggle{display:flex}
+    .toc{max-height:0;overflow:hidden;padding:0 16px;border-width:0;margin-top:0;
+      transition:max-height .3s ease,padding .3s ease,margin .3s ease,border-width .3s}
+    .toc.open{max-height:65vh;padding:16px;border-width:1px;margin-top:8px;overflow:auto}
+    .hero{padding:44px 0 40px}
+    .hero .whale{font-size:150px;right:-18px;top:-10px}
+  }
+  @media (max-width:640px){
+    body{font-size:15.5px}
+    .step{grid-template-columns:36px minmax(0,1fr);gap:14px}
+    .dot{width:36px;height:36px;font-size:13.5px}
+    .steps::before{left:17px}
+    .step-body h3{font-size:17px}
+    .lead-card{padding:20px}
+    .checklist{padding:6px 16px}
+    .hero-actions .btn{flex:1 1 auto}
+  }
+
+  /* ---------- 打印 ---------- */
+  @media print{
+    body{background:#fff;font-size:12pt}
+    .progress,.toc-wrap,.hero-actions,#toTop,#lightbox,.shot::after,.copy{display:none!important}
+    .hero{padding:0 0 16pt;background:#fff;border-bottom:1px solid #ddd}
+    .hero .whale{display:none}
+    .layout{display:block;padding:0}
+    .step,.shot,.lead-card,.checklist,.faq-item{break-inside:avoid;page-break-inside:avoid}
+    .shot{box-shadow:none}
+    a{color:#000;text-decoration:underline}
+  }
+</style>
+</head>
+<body>
+<div style="position:fixed;top:14px;right:14px;z-index:99"><a href="https://github.com/hth768/cortico-world-qq-final" style="background:#fff;border:1px solid #d0d7de;border-radius:6px;padding:5px 11px;font:500 13px/1.4 system-ui,sans-serif;color:#0969da;text-decoration:none;box-shadow:0 1px 3px rgba(0,0,0,.1)">回体宠提作背景</a></div>
+<div class="progress" id="progress"></div>
+
+<header class="hero">
+  <div class="whale" aria-hidden="true">🐳</div>
+  <div class="wrap hero-inner">
+    <div class="eyebrow">🐳 桌宠教程 · Coopanion</div>
+    <h1>让桌宠接入 <span class="hl">QQ</span></h1>
+    <p class="lede">接上之后，她就不只是桌面上那个会动的同桌了 —— 你可以直接在 QQ 里给她发消息、下达命令，她也能替你盯着群。</p>
+    <div class="chips">
+      <span class="chip">🧩 15 个步骤</span>
+      <span class="chip">🖼 全程图文对照</span>
+      <span class="chip">🪟 Windows</span>
+    </div>
+    <div class="hero-actions">
+      <a class="btn primary" href="https://github.com/hth768/cortico-world-qq-final/blob/main/#before">开始阅读 →</a>
+      <button class="btn ghost" id="printBtn">打印 / 存为 PDF</button>
+    </div>
+  </div>
+</header>
+
+<div class="wrap layout">
+  <aside class="toc-wrap">
+    <button class="toc-toggle" id="tocToggle">目录 <span>▾</span></button>
+    <nav class="toc" id="toc">
+      <p class="toc-title">目录</p>
+      <ol>
+        <li><a href="https://github.com/hth768/cortico-world-qq-final/blob/main/#before">开始之前</a></li>
+        <li>
+          <a href="https://github.com/hth768/cortico-world-qq-final/blob/main/#ch1">1 · 安装 NapCatQQ</a>
+          <ol>
+            <li><a href="https://github.com/hth768/cortico-world-qq-final/blob/main/#s1">下载并安装</a></li>
+            <li><a href="https://github.com/hth768/cortico-world-qq-final/blob/main/#s2">装上 SnowLuma 和 Node.js</a></li>
+          </ol>
+        </li>
+        <li>
+          <a href="https://github.com/hth768/cortico-world-qq-final/blob/main/#ch2">2 · 建 Bot，连上 QQ</a>
+          <ol>
+            <li><a href="https://github.com/hth768/cortico-world-qq-final/blob/main/#s3">新建 Bot</a></li>
+            <li><a href="https://github.com/hth768/cortico-world-qq-final/blob/main/#s4">添加正向 / 反向连接</a></li>
+            <li><a href="https://github.com/hth768/cortico-world-qq-final/blob/main/#s5">设置正向服务器</a></li>
+            <li><a href="https://github.com/hth768/cortico-world-qq-final/blob/main/#s6">设置反向客户端</a></li>
+            <li><a href="https://github.com/hth768/cortico-world-qq-final/blob/main/#s7">保存设置</a></li>
+            <li><a href="https://github.com/hth768/cortico-world-qq-final/blob/main/#s8">启动 Bot</a></li>
+            <li><a href="https://github.com/hth768/cortico-world-qq-final/blob/main/#s9">登录 QQ 并验证</a></li>
+          </ol>
+        </li>
+        <li>
+          <a href="https://github.com/hth768/cortico-world-qq-final/blob/main/#ch3">3 · 在桌宠里接入</a>
+          <ol>
+            <li><a href="https://github.com/hth768/cortico-world-qq-final/blob/main/#s10">安装 QQ Final 扩展</a></li>
+            <li><a href="https://github.com/hth768/cortico-world-qq-final/blob/main/#s11">确认装好了</a></li>
+            <li><a href="https://github.com/hth768/cortico-world-qq-final/blob/main/#s12">重启进程加载扩展</a></li>
+            <li><a href="https://github.com/hth768/cortico-world-qq-final/blob/main/#s13">配置连接（默认反向）</a></li>
+            <li><a href="https://github.com/hth768/cortico-world-qq-final/blob/main/#s14">设置监听名单</a></li>
+            <li><a href="https://github.com/hth768/cortico-world-qq-final/blob/main/#s15">修改提示词</a></li>
+          </ol>
+        </li>
+        <li><a href="https://github.com/hth768/cortico-world-qq-final/blob/main/#checklist">检查清单</a></li>
+        <li><a href="https://github.com/hth768/cortico-world-qq-final/blob/main/#faq">常见问题</a></li>
+      </ol>
+    </nav>
+  </aside>
+
+  <main>
+    <!-- ================= 开始之前 ================= -->
+    <section id="before">
+      <div class="sec-head">
+        <span class="kicker">BEFORE YOU START</span>
+        <h2>开始之前</h2>
+        <p>先说清楚整件事是怎么连起来的，后面的每一步就不会变成「照着点但不知道在干嘛」。</p>
+      </div>
+
+      <div class="lead-card">
+        <p>桌宠本身已经能聊天了 —— 前提是你在它的<strong>「开始」设置</strong>里接好了 AI 模型。如果这一步还没做，先去把模型配好，再回来看这篇。</p>
+        <p>要让桌宠收发 QQ 消息，中间得有个「<strong>中间人</strong>」：<strong>NapCatQQ</strong>。它负责登录一个 QQ 号、收发消息，再把消息转交给桌宠。所以你其实是在装两个东西：</p>
+        <ul class="req">
+          <li><strong>NapCatQQ</strong>：替你挂着一个 QQ，负责跟 QQ 服务器打交道。</li>
+          <li><strong>桌宠的 QQ 扩展</strong>：负责跟 NapCatQQ 对接，把消息变成桌宠能理解的话。</li>
+        </ul>
+        <p style="margin-top:16px">整篇教程需要你<strong>能正常访问 GitHub</strong>（下载 NapCatQQ 和 Node.js 都要从这里拿）。下面每一步都配了截图，照着点就行。</p>
+      </div>
+
+      <div class="callout tip" style="margin-top:18px">
+        <span class="ico">💡</span>
+        <div><strong>为什么非要多一个 NapCatQQ？</strong> QQ 并没有开放「让别的程序直接读消息」的接口。NapCatQQ 这类工具补上了这一层，所以它并不只是给桌宠用的 —— 任何支持 OneBot 协议的软件，都能借它收发 QQ 消息。</div>
+      </div>
+    </section>
+
+    <!-- ================= 第 1 章 ================= -->
+    <section id="ch1">
+      <div class="sec-head">
+        <span class="kicker">STEP 1 / 3</span>
+        <h2>安装中间协议层 NapCatQQ</h2>
+        <p>这一步只做两件事：把 NapCatQQ 装上，把它的两个组件备齐。</p>
+      </div>
+
+      <div class="steps">
+        <div class="step" id="s1">
+          <div class="rail"><span class="dot">1</span></div>
+          <div class="step-body">
+            <h3>下载并安装 NapCatQQ-Desktop</h3>
+            <p>打开项目的 GitHub 页面，下载安装包并完成安装：</p>
+            <div class="code">
+              <code>github.com/NapNeko/NapCatQQ-Desktop</code>
+              <button class="copy" data-copy="https://github.com/NapNeko/NapCatQQ-Desktop">复制</button>
+            </div>
+            <p>GitHub 页面里有完整的使用指南。下面只讲 Windows 上最关键的那几步。</p>
+            <div class="callout tip">
+              <span class="ico">🌐</span>
+              <div>下载这一步<strong>需要能正常访问 GitHub 的网络环境</strong>，打不开的话先把网络准备好再来。</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="step" id="s2">
+          <div class="rail"><span class="dot">2</span></div>
+          <div class="step-body">
+            <h3>在「组件管理」里装上 SnowLuma 和 Node.js</h3>
+            <p>打开 NapCatQQ-Desktop，进入左侧的<strong>「组件管理」</strong>：</p>
+            <ul class="do">
+              <li>在<strong>「协议端」</strong>分组里找到 <strong>SnowLuma</strong>，点安装。</li>
+              <li>再到页面<strong>底部</strong>下载安装 <strong>Node.js</strong>。</li>
+              <li>如果你的电脑上已经装过 Node.js，那就只需要装 SnowLuma。</li>
+            </ul>
+            <figure class="shot"><img src="img/step-01.png" alt="NapCatQQ-Desktop 的组件管理页面，SnowLuma 显示已安装" loading="lazy"></figure>
+            <div class="callout tip">
+              <span class="ico">🧩</span>
+              <div>
+                <p style="margin-bottom:8px"><strong>SnowLuma 和 NapCat 是同一件事的两种做法</strong>，作用完全一样：架一层协议，能收发 QQ 消息，也能把消息转给桌宠这样的下游程序。</p>
+                <p>区别只在于 —— <strong>SnowLuma 需要电脑上开着 QQ 客户端</strong>，<strong>NapCat 不需要</strong>。这篇教程走的是 SnowLuma 这条路。</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 第 2 章 ================= -->
+    <section id="ch2">
+      <div class="sec-head">
+        <span class="kicker">STEP 2 / 3</span>
+        <h2>建一个 Bot，把 QQ 连上</h2>
+        <p>接下来在 NapCatQQ 里建一个「Bot」—— 你可以把它理解成「一个被托管的 QQ 账号」。</p>
+      </div>
+
+      <div class="steps">
+        <div class="step" id="s3">
+          <div class="rail"><span class="dot">3</span></div>
+          <div class="step-body">
+            <h3>新建 Bot，填入 QQ 号</h3>
+            <p>进入<strong>「Bot 管理」</strong>，新建一个 Bot，填上你要用来接入的 QQ 号。</p>
+            <figure class="shot"><img src="img/step-02.png" alt="NapCatQQ-Desktop 新建 Bot 页面，填写 QQ 账号与实例名称" loading="lazy"></figure>
+            <div class="callout warn">
+              <div>使用大号、小号都可以。新注册的账号可能容易被 QQ 风控，使用注册较久的 QQ 号不容易被风控。<br>
+如果你想用自己的 QQ 和桌宠的 QQ 聊天，那就需要给桌宠用另一个 QQ 号。</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="step" id="s4">
+          <div class="rail"><span class="dot">4</span></div>
+          <div class="step-body">
+            <h3>把正向、反向两条连接都添加上</h3>
+            <p>进入这个 Bot 的<strong>「连接」</strong>页面，底部有一排添加按钮，这里既有正向也有反向：</p>
+            <ul class="do">
+              <li><strong>「+ WS 正向服务器」</strong>：NapCat 开个口子，等桌宠来连。</li>
+              <li><strong>「+ WS 反向客户端」</strong>：NapCat 主动去连桌宠侧的服务。</li>
+            </ul>
+            <figure class="shot"><img src="img/step-03.png" alt="Bot 的连接页面，底部有 WS 正向服务器与 WS 反向客户端按钮" loading="lazy"></figure>
+            <p>两条都要添加、都要设置。顺序无所谓，下面按正向 → 反向来讲。</p>
+          </div>
+        </div>
+
+        <div class="step" id="s5">
+          <div class="rail"><span class="dot">5</span></div>
+          <div class="step-body">
+            <h3>设置正向服务器 —— 顺便把 Token 存下来</h3>
+            <p>点<strong>「+ WS 正向服务器」</strong>，弹出的编辑窗里，监听 IP、端口这些用默认值就好。</p>
+            <p>唯一要动手的是底部的<strong>鉴权 Token</strong>：<strong>把它复制下来存到别处备用</strong>，后面在桌宠里要填的就是这一串。</p>
+            <figure class="shot"><img src="img/step-04.png" alt="编辑 WS 正向服务器弹窗，红框标出鉴权 Token" loading="lazy"></figure>
+            <p>确认「启用此连接」是打开的，然后点右下角的<strong>「保存连接」</strong>。</p>
+            <div class="callout tip">
+              <span class="ico">🔌</span>
+              <div>这里的端口默认是 <code>3001</code>，而桌宠默认就连 <code>ws://127.0.0.1:3001</code> —— 两边正好对得上，所以一般不用改。</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="step" id="s6">
+          <div class="rail"><span class="dot">6</span></div>
+          <div class="step-body">
+            <h3>设置反向客户端 —— 主要是填对地址</h3>
+            <p>再点<strong>「+ WS 反向客户端」</strong>。这里最容易卡住的地方是：</p>
+            <ul class="do">
+              <li><strong>服务端 WebSocket URL</strong> 的输入框<strong>是空的</strong>（虽然它下面给了默认地址的提示），需要你手动粘贴进去 ——<br><code>ws://127.0.0.1:8080/onebot/v11</code></li>
+              <li>其余项保持默认，然后同样点右下角的<strong>「保存连接」</strong>。</li>
+            </ul>
+            <figure class="shot"><img src="img/step-05.png" alt="编辑 WS 反向客户端弹窗，红框标出需要手填的服务端 WebSocket 地址" loading="lazy"></figure>
+            <div class="callout tip">
+              <span class="ico">🔑</span>
+              <div>这个弹窗里也有一个 Token，但它<strong>不是</strong>桌宠要填的那个 —— 桌宠填的是上一步<strong>正向服务器</strong>里的 Token，别拿混了。</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="step" id="s7">
+          <div class="rail"><span class="dot">7</span></div>
+          <div class="step-body">
+            <h3>保存整个 Bot 的设置</h3>
+            <p>正向、反向都设置好之后，点页面<strong>右上角的「保存」</strong>。看到「未保存」的提示消失，就说明存上了。</p>
+            <figure class="shot"><img src="img/step-06.png" alt="点击页面右上角的保存按钮" loading="lazy"></figure>
+            <div class="callout warn">
+              <span class="ico">💾</span>
+              <div>这里有两个「保存」，别搞混：弹窗里的<strong>「保存连接」</strong>只保存那一条连接，右上角的<strong>「保存」</strong>才是把整个 Bot 的设置存下来。两步都要点。</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="step" id="s8">
+          <div class="rail"><span class="dot">8</span></div>
+          <div class="step-body">
+            <h3>启动 Bot</h3>
+            <p>回到 <strong>Bot 列表</strong>，点击这个 Bot 的<strong>「启动」</strong>。</p>
+            <figure class="shot"><img src="img/step-07.png" alt="在 Bot 列表中点击启动按钮" loading="lazy"></figure>
+          </div>
+        </div>
+
+        <div class="step" id="s9">
+          <div class="rail"><span class="dot">9</span></div>
+          <div class="step-body">
+            <h3>登录 QQ，然后验证一下</h3>
+            <p>启动后会弹出 QQ 的登录界面，登录<strong>你在这个 Bot 里填的那个账号</strong>即可。</p>
+            <figure class="shot"><img src="img/step-08.png" alt="启动后弹出的 QQ 登录界面" loading="lazy"></figure>
+            <p style="margin-top:18px">登录之后先测一下协议层通不通：<strong>用这个 QQ 给朋友或群里发条消息</strong>（也可以让别人给它发），然后点 NapCatQQ 左侧的聊天窗口，看看消息有没有出现在列表里。</p>
+            <figure class="shot"><img src="img/step-09.png" alt="NapCatQQ 左侧聊天窗口显示收到的消息" loading="lazy"></figure>
+            <div class="callout tip">
+              <span class="ico">💡</span>
+              <div>这里的消息列表<strong>经常会有延迟</strong>，设成免打扰的群也可能压根不显示。别慌 —— 那只是<strong>显示</strong>的问题，实际接收和转发是没有延迟的。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 第 3 章 ================= -->
+    <section id="ch3">
+      <div class="sec-head">
+        <span class="kicker">STEP 3 / 3</span>
+        <h2>在桌宠里接入 QQ</h2>
+        <p>协议层已经在跑了，现在把桌宠接上去。这一章装的是 <strong>QQ Final 扩展</strong>，全部设置都在桌宠里完成。</p>
+      </div>
+
+      <div class="callout tip">
+        <span class="ico">&#128300;</span>
+        <div><strong>先说默认：</strong>QQ Final 默认走<strong>反向连接</strong>——桌宠开监听、NapCat 主动连进来。所以<strong>「OneBot Token」默认留空</strong>就行，只有你把连接模式改成<strong>「正向」</strong>时才需要填 Token。</div>
+      </div>
+
+      <div class="steps">
+        <div class="step" id="s10">
+          <div class="rail"><span class="dot">10</span></div>
+          <div class="step-body">
+            <h3>安装 QQ Final 扩展</h3>
+            <ul class="do">
+              <li>点左下角打开<strong>「高级模式」</strong>。</li>
+              <li>进入<strong>「扩展」</strong>页面，在「扩展市场」的搜索框里输入 <code>qq-final</code>。</li>
+              <li>找到 <code>cortico-world-qq-final</code> 卡片点安装（旁边的 <code>-final-beta</code> 是尝鲜版，功能更新但可能不够稳，按需选）。</li>
+            </ul>
+            <figure class="shot"><img src="img/step-10.png" alt="扩展市场搜索 qq-final 并安装" loading="lazy"></figure>
+          </div>
+        </div>
+
+        <div class="step" id="s11">
+          <div class="rail"><span class="dot">11</span></div>
+          <div class="step-body">
+            <h3>确认装好了</h3>
+            <p>回到<strong>「已安装」</strong>列表，能看到 <code>cortico-world-qq-final</code> 卡片。右下角显示<strong>「待重启」</strong>是正常的——扩展要等进程重启后才真正加载。</p>
+            <figure class="shot"><img src="img/step-11.png" alt="已安装列表里的 cortico-world-qq-final" loading="lazy"></figure>
+          </div>
+        </div>
+
+        <div class="step" id="s12">
+          <div class="rail"><span class="dot">12</span></div>
+          <div class="step-body">
+            <h3>重启进程，让扩展加载</h3>
+            <p>在<strong>「扩展」</strong>页面点右上角的<strong>「重启进程」</strong>（或直接完全退出桌宠再打开）。</p>
+            <div class="callout warn">
+              <span class="ico">&#9888;</span>
+              <div>这里必须是<strong>完整重启</strong>，不能用控制台里那个进程内重启——扩展是启动时加载的，进程内重启不会重新加载它。</div>
+            </div>
+            <p>重启后到<strong>「World 总览」</strong>，能看到 <strong>QQ 群聊</strong> 这张卡片，说明扩展已经加载成功。</p>
+            <figure class="shot"><img src="img/step-12.png" alt="World 总览里的 QQ 群聊卡片" loading="lazy"></figure>
+          </div>
+        </div>
+
+        <div class="step" id="s13">
+          <div class="rail"><span class="dot">13</span></div>
+          <div class="step-body">
+            <h3>配置连接（默认反向，不用填 Token）</h3>
+            <p>点左侧<strong>「QQ 群聊」</strong>进入面板，默认停在<strong>「连接与监听」</strong>这一页。按下图红框核对三处：</p>
+            <figure class="shot"><img src="img/step-13.png" alt="连接与监听页：保持 reverse、端口与 NapCat 一致、Token 留空" loading="lazy"></figure>
+            <ul class="do">
+              <li><strong>连接模式</strong>保持 <code>reverse</code>（反向），这是默认值，不用改。</li>
+              <li><strong>反向监听端口</strong>要和 NapCat 里<strong>「设置反向客户端」</strong>填的端口一致（默认 <code>8080</code>）；<strong>反向监听路径</strong>默认 <code>/onebot/v11/ws</code>，也要和 NapCat 一致。</li>
+              <li><strong>OneBot Token</strong>：反向连接<strong>留空</strong>。只有切成 <code>forward</code>（正向）时，才填 NapCat<strong>「设置正向服务器」</strong>里那个 Token。</li>
+            </ul>
+            <div class="callout tip">
+              <span class="ico">&#128161;</span>
+              <div>改完连接参数后，点面板右上角的<strong>「重启连接」</strong>就能立刻生效，<strong>不用重启整个桌宠</strong>。</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="step" id="s14">
+          <div class="rail"><span class="dot">14</span></div>
+          <div class="step-body">
+            <h3>设置监听名单</h3>
+            <p>桌宠默认<strong>不监听任何群聊或私聊</strong>。想让她管哪些会话，就把群号、私聊的 QQ 号填进<strong>「监听群」</strong>和<strong>「监听私聊」</strong>——用空格或逗号分隔。</p>
+            <figure class="shot"><img src="img/step-14.png" alt="监听名单页：监听群与监听私聊" loading="lazy"></figure>
+            <div class="callout ok">
+              <span class="ico">&#9989;</span>
+              <div>改完<strong>点一下别处</strong>（输入框失去焦点）就自动保存，会提示「已保存 ✓ 即时生效」，不用再点按钮。<strong>想取消监听就把框清空</strong>——清空后读回来是空的，不会出现多余的号码。</div>
+            </div>
+            <p style="margin-top:18px">填完就可以试了：<strong>给桌宠的 QQ 发一条私聊</strong>，她应该会回复你。如果监听了群消息，她可能也会自动回群里的消息。</p>
+          </div>
+        </div>
+
+        <div class="step optional" id="s15">
+          <div class="rail"><span class="dot">15</span></div>
+          <div class="step-body">
+            <h3>修改提示词 <span class="badge">建议做</span></h3>
+            <p>提示词决定了她「看到消息之后怎么想、怎么回」。在<strong>「QQ 环境描述」</strong>面板里按自己的习惯改一改，比如告诉桌宠：</p>
+            <ul class="do">
+              <li>默认不需要识图；</li>
+              <li>不必每条消息都回，只在被叫到的时候回；</li>
+              <li>不要执行危险命令；</li>
+              <li>监控到特定关键词或场景时，执行某个动作。</li>
+            </ul>
+            <p>改完记得保存。提示词不会立刻生效，回到<strong>「World 总览」</strong>点右上角的<strong>「重载系统前缀」</strong>，或者干脆<strong>重启进程</strong>。</p>
+            <div class="callout ok">
+              <span class="ico">&#127881;</span>
+              <div>到这儿就全通了。给她发条消息试试吧 —— 她会用自己的语气回你的。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+
+    <section id="checklist">
+      <div class="sec-head">
+        <span class="kicker">CHECKLIST</span>
+        <h2>检查清单</h2>
+        <p>不通的时候回头对一遍，八成能一眼看出卡在哪。勾选状态会记在这台电脑上。</p>
+      </div>
+      <div class="checklist">
+        <label class="check-item"><input type="checkbox" data-key="c1"><span>NapCatQQ 装好了，SnowLuma（或 NapCat）和 Node.js 都安装完成</span></label>
+        <label class="check-item"><input type="checkbox" data-key="c2"><span>Bot 建好了，并且已经「启动」、登录了要接入的 QQ</span></label>
+        <label class="check-item"><input type="checkbox" data-key="c3"><span>正向服务器和反向客户端都配置好、各自点了「保存连接」</span></label>
+        <label class="check-item"><input type="checkbox" data-key="c4"><span>两条连接都配完后，点了页面右上角的「保存」</span></label>
+        <label class="check-item"><input type="checkbox" data-key="c5"><span>正向服务器的鉴权 Token 已经复制存好</span></label>
+        <label class="check-item"><input type="checkbox" data-key="c6"><span>反向客户端的地址填的是 <code>ws://127.0.0.1:8080/onebot/v11</code></span></label>
+        <label class="check-item"><input type="checkbox" data-key="c7"><span>桌宠里 QQ 扩展已安装，并在 World 总览里启用了</span></label>
+        <label class="check-item"><input type="checkbox" data-key="c8"><span>Token 已填入桌宠并「保存并重启」，顶部显示「已连接」</span></label>
+        <label class="check-item"><input type="checkbox" data-key="c9"><span>监听名单里填了要管理的群号 / QQ 号</span></label>
+        <label class="check-item"><input type="checkbox" data-key="c10"><span>提示词改完后点过「重载系统前缀」（或重启了桌宠）</span></label>
+      </div>
+      <p class="check-note">※ 如果换号、重装 NapCatQQ，Token 会重新生成，需要回到第 12 步重填一次。</p>
+    </section>
+
+    <!-- ================= 常见问题 ================= -->
+    <section id="faq">
+      <div class="sec-head">
+        <span class="kicker">FAQ</span>
+        <h2>常见问题</h2>
+        <p>几个最容易踩的坑，先对照看看。</p>
+      </div>
+
+      <details class="faq-item">
+        <summary>桌宠里一直显示「未连接」怎么办？</summary>
+        <div class="faq-body">
+          <p>按这个顺序查：</p>
+          <ol>
+            <li>NapCatQQ 里的 Bot 是不是<strong>还在运行</strong>、QQ 是不是<strong>还登着</strong>？</li>
+            <li>正向服务器有没有打开「启用此连接」、有没有点过「保存连接」，最后有没有点右上角的「保存」？</li>
+            <li>Token 用的是<strong>正向服务器</strong>那个吗？完整复制了吗？前后多一个空格都会连不上。</li>
+            <li>桌宠里的 WS 地址和 NapCat 里的端口是否一致（默认 <code>3001</code>）。</li>
+          </ol>
+        </div>
+      </details>
+
+      <details class="faq-item">
+        <summary>连接显示成功，但收不到消息 / 她不回话？</summary>
+        <div class="faq-body">
+          <p>十有八九是<strong>监听名单是空的</strong>。桌宠默认不监听任何会话，必须把群号或私聊 QQ 号填进去。</p>
+          <p>另外：如果只是 NapCatQQ 的聊天窗口看不到消息，那是显示延迟，不影响实际收发。</p>
+        </div>
+      </details>
+
+      <details class="faq-item">
+        <summary>正向和反向两个都要设置吗？</summary>
+        <div class="faq-body">
+          <p>按教程都设置上最省事。它们只是「谁主动连谁」的方向不同：</p>
+          <ul>
+            <li><strong>正向 WS 服务器</strong>：NapCat 开门等别人来连。桌宠连的就是这里（默认 <code>3001</code> 端口），Token 也从这里拿。</li>
+            <li><strong>反向 WS 客户端</strong>：NapCat 主动去连别人（教程里配的是 <code>8080</code>）。</li>
+          </ul>
+          <p>两个都开着，以后换别的下游程序也能直接用。</p>
+        </div>
+      </details>
+
+      <details class="faq-item">
+        <summary>两个「保存」按钮有什么区别？</summary>
+        <div class="faq-body">
+          <p>弹窗里的是<strong>「保存连接」</strong>，只保存当前这一条连接的配置；页面右上角的是<strong>「保存」</strong>，保存整个 Bot 的全部设置。</p>
+          <p>所以顺序是：先给每条连接点「保存连接」，全部配完再点一次右上角的「保存」。</p>
+        </div>
+      </details>
+
+      <details class="faq-item">
+        <summary>改了提示词，桌宠的表现完全没变？</summary>
+        <div class="faq-body">
+          <p>提示词改完需要<strong>「重载系统前缀」</strong>才会生效。在 World 总览右上角，或者干脆重启一次桌宠。</p>
+        </div>
+      </details>
+
+      <details class="faq-item">
+        <summary>Token 弄丢 / 想换一个怎么办？</summary>
+        <div class="faq-body">
+          <p>回到 NapCatQQ 里那个 Bot 的「连接」页面，打开<strong>正向 WS 服务器</strong>的配置，重新生成或复制 Token，再到桌宠里重填、保存并重启。</p>
+        </div>
+      </details>
+    </section>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap">
+    <span>让桌宠接入 QQ · 图文教程</span>
+    <span>共 15 步 · 截图来自原教程</span>
+  </div>
+</footer>
+
+<button id="toTop" title="回到顶部" aria-label="回到顶部">↑</button>
+
+<div id="lightbox" role="dialog" aria-modal="true" aria-label="查看大图">
+  <img alt="放大查看截图">
+  <span class="hint">点击任意处或按 Esc 关闭</span>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ---------- 阅读进度 ---------- */
+  var progress = document.getElementById('progress');
+  var toTop = document.getElementById('toTop');
+
+  function onScroll() {
+    var h = document.documentElement;
+    var max = h.scrollHeight - h.clientHeight;
+    var y = window.scrollY || h.scrollTop;
+    if (progress) progress.style.width = (max > 0 ? (y / max) * 100 : 0) + '%';
+    if (toTop) toTop.classList.toggle('show', y > 600);
+    syncToc();
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+
+  /* ---------- 目录高亮 ---------- */
+  var tocLinks = Array.prototype.slice.call(document.querySelectorAll('.toc a'));
+  var targets = [];
+  tocLinks.forEach(function (a) {
+    var href = a.getAttribute('href') || '';
+    if (href.charAt(0) !== '#') return;
+    var el = document.getElementById(href.slice(1));
+    if (el) targets.push({ el: el, link: a });
+  });
+
+  function syncToc() {
+    if (!targets.length) return;
+    var line = window.scrollY + 140;
+    var current = targets[0];
+    for (var i = 0; i < targets.length; i++) {
+      var top = targets[i].el.getBoundingClientRect().top + window.scrollY;
+      if (top <= line) current = targets[i];
+    }
+    targets.forEach(function (t) { t.link.classList.toggle('active', t === current); });
+  }
+
+  /* ---------- 小屏目录展开 ---------- */
+  var tocToggle = document.getElementById('tocToggle');
+  var toc = document.getElementById('toc');
+  if (tocToggle && toc) {
+    tocToggle.addEventListener('click', function () {
+      toc.classList.toggle('open');
+      tocToggle.querySelector('span').textContent = toc.classList.contains('open') ? '▴' : '▾';
+    });
+    toc.addEventListener('click', function (e) {
+      if (e.target.tagName === 'A' && window.innerWidth <= 1000) {
+        toc.classList.remove('open');
+        tocToggle.querySelector('span').textContent = '▾';
+      }
+    });
+  }
+
+  /* ---------- 复制按钮 ---------- */
+  document.querySelectorAll('.copy').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var text = btn.getAttribute('data-copy') || '';
+      var done = function () {
+        var old = btn.textContent;
+        btn.textContent = '已复制';
+        btn.classList.add('done');
+        setTimeout(function () { btn.textContent = old; btn.classList.remove('done'); }, 1500);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, function () { fallbackCopy(text, done); });
+      } else {
+        fallbackCopy(text, done);
+      }
+    });
+  });
+
+  function fallbackCopy(text, cb) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.top = '-1000px';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); cb(); } catch (e) { /* ignore */ }
+    document.body.removeChild(ta);
+  }
+
+  /* ---------- 图片灯箱 ---------- */
+  var lb = document.getElementById('lightbox');
+  var lbImg = lb ? lb.querySelector('img') : null;
+
+  function openLb(src, alt) {
+    if (!lb || !lbImg) return;
+    lbImg.src = src;
+    lbImg.alt = alt || '';
+    lb.classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeLb() {
+    if (!lb) return;
+    lb.classList.remove('open');
+    document.body.style.overflow = '';
+  }
+
+  document.querySelectorAll('.shot img').forEach(function (img) {
+    img.addEventListener('click', function () { openLb(img.src, img.alt); });
+  });
+  if (lb) {
+    lb.addEventListener('click', closeLb);
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') closeLb();
+    });
+  }
+
+  /* ---------- 检查清单本地记忆 ---------- */
+  document.querySelectorAll('.check-item input').forEach(function (cb) {
+    var key = 'pet-qq-tutorial-' + (cb.getAttribute('data-key') || '');
+    try {
+      if (localStorage.getItem(key) === '1') cb.checked = true;
+    } catch (e) { /* file:// 下个别浏览器禁用 */ }
+    cb.addEventListener('change', function () {
+      try { localStorage.setItem(key, cb.checked ? '1' : '0'); } catch (e) { /* ignore */ }
+    });
+  });
+
+  /* ---------- 打印 / 回顶 ---------- */
+  var printBtn = document.getElementById('printBtn');
+  if (printBtn) printBtn.addEventListener('click', function () { window.print(); });
+  if (toTop) toTop.addEventListener('click', function () {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+
+  onScroll();
+})();
+</script>
+</body>
+</html>

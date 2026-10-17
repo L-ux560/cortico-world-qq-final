@@ -22,7 +22,7 @@ type ModuleSpec = { id: string; title: string; desc: string; group: string; pref
  * 教程 HTML 没法从扩展目录伺服，所以这里给一个外部地址；
  * 想换成自己那份，把这个常量改掉重新构建即可。
  */
-const TUTORIAL_URL = 'https://github.com/hth768/cortico-world-qq-final#%E6%8E%A5%E5%85%A5%E6%95%99%E7%A8%8B';
+const TUTORIAL_URL = 'https://github.com/hth768/cortico-world-qq-final/blob/main/docs/index.html';
 
 // 与 world.ts modulePanels 对应
 const MODULES: ModuleSpec[] = [
