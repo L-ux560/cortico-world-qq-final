@@ -223,14 +223,23 @@ function sectionEl(title, items) {
   }
   return wrap;
 }
+var ROSTER_KEYS = {
+  groups: "worlds.qqbot.groups",
+  privates: "worlds.qqbot.privates"
+};
+var ROSTER_LABELS = { groups: "\u76D1\u542C\u7FA4", privates: "\u76D1\u542C\u79C1\u804A" };
 var rosterPanel = {
   mount(ctx) {
     const ui = ctx.ui;
     const sheet = ui.sheet({ title: "\u76D1\u542C\u540D\u5355", desc: "\u5F53\u524D\u76D1\u542C\u7684\u7FA4\u4E0E\u79C1\u804A\uFF1B\u4E0B\u65B9\u53EF\u76F4\u63A5\u7F16\u8F91\uFF0C\u4FDD\u5B58\u5373\u65F6\u751F\u6548\uFF08\u65E0\u9700\u91CD\u542F\uFF09\u3002" });
-    sheet.body.textContent = "\u52A0\u8F7D\u76D1\u542C\u540D\u5355\u2026";
+    const status = ui.msgline("\u52A0\u8F7D\u76D1\u542C\u540D\u5355\u2026");
+    sheet.body.appendChild(status);
+    const formHost = document.createElement("div");
+    sheet.body.appendChild(formHost);
     ctx.root.appendChild(sheet.el);
+    const errText = (e) => e instanceof Error ? e.message : String(e);
     const build = (data) => {
-      sheet.body.replaceChildren();
+      formHost.replaceChildren();
       const groupsVal = (data.groups || []).join(" ");
       const privatesVal = (data.privates || []).join(" ");
       const info = document.createElement("div");
@@ -238,26 +247,42 @@ var rosterPanel = {
       info.style.opacity = "0.7";
       info.style.marginBottom = "8px";
       info.textContent = `selfId: ${data.selfId ?? "\u2014"}  mode: ${data.mode ?? "\u2014"}  \u7FA4\u6570: ${(data.groups || []).length}  \u79C1\u804A\u6570: ${(data.privates || []).length}`;
-      sheet.body.appendChild(info);
-      const groupsInput = ui.textarea({ value: groupsVal, rows: 3, placeholder: "\u76D1\u542C\u7684\u7FA4\u53F7\uFF0C\u7528\u7A7A\u683C\u6216\u9017\u53F7\u5206\u9694\uFF1B\u7559\u7A7A=\u5168\u90E8\u7FA4" });
-      const privatesInput = ui.textarea({ value: privatesVal, rows: 3, placeholder: "\u76D1\u542C\u7684\u79C1\u804A QQ \u53F7\uFF0C\u7528\u7A7A\u683C\u6216\u9017\u53F7\u5206\u9694\uFF1B\u7559\u7A7A=\u4E0D\u76D1\u542C\u79C1\u804A" });
-      const saveBtn = ui.button("\u4FDD\u5B58\u76D1\u542C\u540D\u5355", {
-        onClick: () => {
-          saveBtn.textContent = "\u4FDD\u5B58\u4E2D\u2026";
-          void ctx.setConfig("world:qqbot", {
-            "worlds.qqbot.groups": groupsInput.value.trim(),
-            "worlds.qqbot.privates": privatesInput.value.trim()
-          }).then(
-            () => {
-              saveBtn.textContent = "\u5DF2\u4FDD\u5B58 \u2713\uFF08\u5373\u65F6\u751F\u6548\uFF09";
-              void ctx.invoke("getRoster").then((r2) => build(r2), () => {
-              });
-            },
-            (e) => {
-              saveBtn.textContent = "\u4FDD\u5B58\u5931\u8D25\uFF1A" + (e instanceof Error ? e.message : String(e));
-            }
-          );
+      const saveField = async (which, raw) => {
+        status.textContent = `\u6B63\u5728\u4FDD\u5B58${ROSTER_LABELS[which]}\u2026`;
+        try {
+          await ctx.setConfig("world:qqbot", { [ROSTER_KEYS[which]]: raw.trim() });
+          status.textContent = `${ROSTER_LABELS[which]}\u5DF2\u4FDD\u5B58 \u2713 \u5373\u65F6\u751F\u6548\uFF08\u65E0\u9700\u91CD\u542F\uFF09`;
+        } catch (e) {
+          status.textContent = `${ROSTER_LABELS[which]}\u4FDD\u5B58\u5931\u8D25\uFF1A${errText(e)}`;
+          status.classList.add("bad");
+          return;
         }
+        status.classList.remove("bad");
+        try {
+          const r = await ctx.invoke("getRoster");
+          info.textContent = `selfId: ${r.selfId ?? "\u2014"}  mode: ${r.mode ?? "\u2014"}  \u7FA4\u6570: ${(r.groups || []).length}  \u79C1\u804A\u6570: ${(r.privates || []).length}`;
+        } catch {
+        }
+      };
+      const commitGroups = (v) => {
+        void saveField("groups", v);
+      };
+      const commitPrivates = (v) => {
+        void saveField("privates", v);
+      };
+      const groupsInput = ui.textarea({
+        value: groupsVal,
+        rows: 3,
+        placeholder: "\u76D1\u542C\u7684\u7FA4\u53F7\uFF0C\u7528\u7A7A\u683C\u6216\u9017\u53F7\u5206\u9694\uFF1B\u7559\u7A7A=\u5168\u90E8\u7FA4",
+        onChange: commitGroups,
+        onCommit: commitGroups
+      });
+      const privatesInput = ui.textarea({
+        value: privatesVal,
+        rows: 3,
+        placeholder: "\u76D1\u542C\u7684\u79C1\u804A QQ \u53F7\uFF0C\u7528\u7A7A\u683C\u6216\u9017\u53F7\u5206\u9694\uFF1B\u7559\u7A7A=\u4E0D\u76D1\u542C\u79C1\u804A",
+        onChange: commitPrivates,
+        onCommit: commitPrivates
       });
       const groupWrap = document.createElement("div");
       groupWrap.style.margin = "10px 0";
@@ -273,15 +298,42 @@ var rosterPanel = {
       pl.style.marginBottom = "3px";
       pl.textContent = "\u76D1\u542C\u79C1\u804A\uFF08\u7A7A\u683C/\u9017\u53F7\u5206\u9694\uFF09";
       privWrap.append(pl, privatesInput);
-      sheet.body.append(groupWrap, privWrap, saveBtn);
-      sheet.body.appendChild(sectionEl("\u6D3B\u8DC3\u4F1A\u8BDD", (data.convs || []).map((c) => `${c.label || c.address} [${c.kind || "?"}]${c.active ? " \u2022\u5728\u7EBF" : ""} \u6210\u5458:${c.members ?? 0}`)));
+      const saveAll = ui.button("\u4FDD\u5B58\u4E24\u4E2A\u540D\u5355", {
+        onClick: () => {
+          status.textContent = "\u6B63\u5728\u4FDD\u5B58\u2026";
+          void ctx.setConfig("world:qqbot", {
+            [ROSTER_KEYS.groups]: groupsInput.value.trim(),
+            [ROSTER_KEYS.privates]: privatesInput.value.trim()
+          }).then(
+            () => {
+              status.textContent = "\u76D1\u542C\u7FA4\u4E0E\u76D1\u542C\u79C1\u804A\u5DF2\u4FDD\u5B58 \u2713 \u5373\u65F6\u751F\u6548";
+              status.classList.remove("bad");
+            },
+            (e) => {
+              status.textContent = "\u4FDD\u5B58\u5931\u8D25\uFF1A" + errText(e);
+              status.classList.add("bad");
+            }
+          );
+        }
+      });
+      formHost.append(info, groupWrap, privWrap, saveAll);
+      formHost.appendChild(sectionEl("\u6D3B\u8DC3\u4F1A\u8BDD", (data.convs || []).map((c) => `${c.label || c.address} [${c.kind || "?"}]${c.active ? " \u2022\u5728\u7EBF" : ""} \u6210\u5458:${c.members ?? 0}`)));
     };
-    void ctx.invoke("getRoster").then(
-      (r) => build(r),
-      (e) => {
-        sheet.body.textContent = "\u76D1\u542C\u540D\u5355\u8BFB\u53D6\u5931\u8D25\uFF1A" + (e instanceof Error ? e.message : String(e));
-      }
-    );
+    const load = () => {
+      status.textContent = "\u52A0\u8F7D\u76D1\u542C\u540D\u5355\u2026";
+      status.classList.remove("bad");
+      return ctx.invoke("getRoster").then(
+        (r) => {
+          status.textContent = "\u7F16\u8F91\u540E\u5931\u7126\u6216\u6309 Ctrl/\u2318+Enter \u5373\u81EA\u52A8\u4FDD\u5B58\u3002";
+          build(r);
+        },
+        (e) => {
+          status.textContent = "\u76D1\u542C\u540D\u5355\u8BFB\u53D6\u5931\u8D25\uFF1A" + errText(e);
+          status.classList.add("bad");
+        }
+      );
+    };
+    void load();
   }
 };
 var eventsPanel = {

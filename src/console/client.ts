@@ -242,17 +242,33 @@ function sectionEl(title: string, items: string[]): HTMLElement {
   return wrap;
 }
 
-// 「监听名单」：服务端 getRoster 返回 groups/privates/convs。群号/私聊 QQ 号可直接在页面编辑，保存即时生效（无需重启）。
+// 「监听名单」：服务端 getRoster 返回 groups/privates/convs。群号/私聊 QQ 号可直接在页面编辑。
+// 写入方式与「配置」面板的表单字段完全一致：**失焦即存、Enter（textarea 为 Ctrl/⌘+Enter）提交**，
+// 每次只提交自己那一个字段；保存成功后**不重建表单**，以免把用户刚输入的格式改写成
+// `toIds().join(' ')`（如 `111,222` → `111 222`）而让人误以为没保存生效。
 type RosterData = { selfId?: number | null; mode?: string; groups?: number[]; privates?: number[]; convs?: Array<{ address: string; label?: string; kind?: string; active?: boolean; members?: number }> };
+
+/** 监听名单两项对应的配置键（与 config.ts 里 world:qqbot 组的 property key 一致）。 */
+const ROSTER_KEYS = {
+  groups: 'worlds.qqbot.groups',
+  privates: 'worlds.qqbot.privates',
+} as const;
+const ROSTER_LABELS = { groups: '监听群', privates: '监听私聊' } as const;
+
 const rosterPanel: WebUiPanel = {
   mount(ctx: WebUiPanelContext) {
     const ui = ctx.ui;
     const sheet = ui.sheet({ title: '监听名单', desc: '当前监听的群与私聊；下方可直接编辑，保存即时生效（无需重启）。' });
-    sheet.body.textContent = '加载监听名单…';
+    const status = ui.msgline('加载监听名单…');
+    sheet.body.appendChild(status);
+    const formHost = document.createElement('div');
+    sheet.body.appendChild(formHost);
     ctx.root.appendChild(sheet.el);
 
+    const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
     const build = (data: RosterData) => {
-      sheet.body.replaceChildren();
+      formHost.replaceChildren();
       const groupsVal = (data.groups || []).join(' ');
       const privatesVal = (data.privates || []).join(' ');
 
@@ -261,25 +277,42 @@ const rosterPanel: WebUiPanel = {
       info.style.opacity = '0.7';
       info.style.marginBottom = '8px';
       info.textContent = `selfId: ${data.selfId ?? '—'}  mode: ${data.mode ?? '—'}  群数: ${(data.groups || []).length}  私聊数: ${(data.privates || []).length}`;
-      sheet.body.appendChild(info);
 
-      const groupsInput = ui.textarea({ value: groupsVal, rows: 3, placeholder: '监听的群号，用空格或逗号分隔；留空=全部群' });
-      const privatesInput = ui.textarea({ value: privatesVal, rows: 3, placeholder: '监听的私聊 QQ 号，用空格或逗号分隔；留空=不监听私聊' });
+      /** 保存单个字段：与配置栏 renderField 的 commit 走同一条路（POST /api/config）。 */
+      const saveField = async (which: keyof typeof ROSTER_KEYS, raw: string) => {
+        status.textContent = `正在保存${ROSTER_LABELS[which]}…`;
+        try {
+          await ctx.setConfig('world:qqbot', { [ROSTER_KEYS[which]]: raw.trim() });
+          status.textContent = `${ROSTER_LABELS[which]}已保存 ✓ 即时生效（无需重启）`;
+        } catch (e) {
+          status.textContent = `${ROSTER_LABELS[which]}保存失败：${errText(e)}`;
+          status.classList.add('bad');
+          return;
+        }
+        status.classList.remove('bad');
+        // 只刷新顶部计数，不重建输入框（保留用户输入的原始格式与光标位置）。
+        try {
+          const r = (await ctx.invoke('getRoster')) as RosterData;
+          info.textContent = `selfId: ${r.selfId ?? '—'}  mode: ${r.mode ?? '—'}  群数: ${(r.groups || []).length}  私聊数: ${(r.privates || []).length}`;
+        } catch { /* 计数刷新失败不影响已保存的事实 */ }
+      };
 
-      const saveBtn = ui.button('保存监听名单', {
-        onClick: () => {
-          saveBtn.textContent = '保存中…';
-          void ctx.setConfig('world:qqbot', {
-            'worlds.qqbot.groups': groupsInput.value.trim(),
-            'worlds.qqbot.privates': privatesInput.value.trim(),
-          }).then(
-            () => {
-              saveBtn.textContent = '已保存 ✓（即时生效）';
-              void ctx.invoke('getRoster').then((r2) => build(r2 as RosterData), () => {});
-            },
-            (e: unknown) => { saveBtn.textContent = '保存失败：' + (e instanceof Error ? e.message : String(e)); },
-          );
-        },
+      const commitGroups = (v: string) => { void saveField('groups', v); };
+      const commitPrivates = (v: string) => { void saveField('privates', v); };
+
+      const groupsInput = ui.textarea({
+        value: groupsVal,
+        rows: 3,
+        placeholder: '监听的群号，用空格或逗号分隔；留空=全部群',
+        onChange: commitGroups,
+        onCommit: commitGroups,
+      });
+      const privatesInput = ui.textarea({
+        value: privatesVal,
+        rows: 3,
+        placeholder: '监听的私聊 QQ 号，用空格或逗号分隔；留空=不监听私聊',
+        onChange: commitPrivates,
+        onCommit: commitPrivates,
       });
 
       const groupWrap = document.createElement('div');
@@ -298,14 +331,34 @@ const rosterPanel: WebUiPanel = {
       pl.textContent = '监听私聊（空格/逗号分隔）';
       privWrap.append(pl, privatesInput);
 
-      sheet.body.append(groupWrap, privWrap, saveBtn);
-      sheet.body.appendChild(sectionEl('活跃会话', (data.convs || []).map((c) => `${c.label || c.address} [${c.kind || '?'}]${c.active ? ' •在线' : ''} 成员:${c.members ?? 0}`)));
+      // 两个框各自失焦/Enter 即存；这个按钮只是「一次提交两项」的兜底，不是唯一入口。
+      const saveAll = ui.button('保存两个名单', {
+        onClick: () => {
+          status.textContent = '正在保存…';
+          void ctx.setConfig('world:qqbot', {
+            [ROSTER_KEYS.groups]: groupsInput.value.trim(),
+            [ROSTER_KEYS.privates]: privatesInput.value.trim(),
+          }).then(
+            () => { status.textContent = '监听群与监听私聊已保存 ✓ 即时生效'; status.classList.remove('bad'); },
+            (e: unknown) => { status.textContent = '保存失败：' + errText(e); status.classList.add('bad'); },
+          );
+        },
+      });
+
+      formHost.append(info, groupWrap, privWrap, saveAll);
+      formHost.appendChild(sectionEl('活跃会话', (data.convs || []).map((c) => `${c.label || c.address} [${c.kind || '?'}]${c.active ? ' •在线' : ''} 成员:${c.members ?? 0}`)));
     };
 
-    void ctx.invoke('getRoster').then(
-      (r) => build(r as RosterData),
-      (e: unknown) => { sheet.body.textContent = '监听名单读取失败：' + (e instanceof Error ? e.message : String(e)); },
-    );
+    const load = () => {
+      status.textContent = '加载监听名单…';
+      status.classList.remove('bad');
+      return ctx.invoke('getRoster').then(
+        (r) => { status.textContent = '编辑后失焦或按 Ctrl/⌘+Enter 即自动保存。'; build(r as RosterData); },
+        (e: unknown) => { status.textContent = '监听名单读取失败：' + errText(e); status.classList.add('bad'); },
+      );
+    };
+
+    void load();
   },
 };
 
