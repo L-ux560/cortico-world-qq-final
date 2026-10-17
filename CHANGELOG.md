@@ -4,7 +4,19 @@
 
 规则：每版本一个二级标题，标题里的第一个版本号即为本节版本。
 
+## 0.2.12
+
+- 声明市场标签 `im` / `qq` / `external-setup`，便于在市场里按平台筛选（`external-setup` 表示需先装好 NapCat）。
+- `CHANGELOG.md` 加入 `files`，随包分发，市场可直接显示各版本更新说明。
+
+## 0.2.11
+
+- 新增 `CHANGELOG.md`，记录各版本改动，供市场「更新说明」读取。
+
 ## 0.2.10
+
+- 接入教程改为 Markdown（`docs/guide.md`），GitHub 上直接渲染成图文教程；文件名改用 ASCII，避免中文名在 URL 里需编码。
+- 面板顶部新增「使用教程」入口与「重启连接」按钮（`restartConnection`），改完连接参数不用重启整个桌宠。
 
 - 接入教程改为 Markdown（`docs/guide.md`），GitHub 上直接渲染成图文教程；文件名改用 ASCII，避免中文名在 URL 里需编码。
 - 面板顶部新增「使用教程」入口与「重启连接」按钮（`restartConnection`），改完连接参数不用重启整个桌宠。
