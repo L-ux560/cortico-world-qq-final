@@ -55,17 +55,33 @@ function renderField(ctx, def, value, commit) {
       onChange: (v2) => commit(v2)
     });
   } else if (def.type === "integer" || def.type === "number") {
+    const num = (v) => def.type === "integer" ? parseInt(v || "0", 10) : parseFloat(v || "0");
     control = ui.input({
       value: value == null ? "" : String(value),
       type: "number",
-      onChange: (v) => commit(def.type === "integer" ? parseInt(v || "0", 10) : parseFloat(v || "0"))
+      onChange: (v) => commit(num(v)),
+      onCommit: (v) => commit(num(v))
     });
   } else if (isLongText(def.key, def)) {
-    control = ui.textarea({ value: value == null ? "" : String(value), rows: 4, onChange: (v) => commit(v) });
+    control = ui.textarea({
+      value: value == null ? "" : String(value),
+      rows: 4,
+      onChange: (v) => commit(v),
+      onCommit: (v) => commit(v)
+    });
   } else if (/secret|key/i.test(def.key) || /key|密钥|token/i.test(def.title)) {
-    control = ui.input({ value: value == null ? "" : String(value), type: "password", onChange: (v) => commit(v) });
+    control = ui.input({
+      value: value == null ? "" : String(value),
+      type: "password",
+      onChange: (v) => commit(v),
+      onCommit: (v) => commit(v)
+    });
   } else {
-    control = ui.input({ value: value == null ? "" : String(value), onChange: (v) => commit(v) });
+    control = ui.input({
+      value: value == null ? "" : String(value),
+      onChange: (v) => commit(v),
+      onCommit: (v) => commit(v)
+    });
   }
   wrap.appendChild(control);
   if (def.description) {

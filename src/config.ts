@@ -646,10 +646,17 @@ export const QQ_ASR_GROUP: ConfigGroup = {
  * 原地补全缺省值并保持对象身份：让 World 持有的 this.config 就是 ctx.cfg 的同一引用，
  * 这样控制台的 x-hot 配置改动（groups / privates / 发送节奏等）能即时对 World 生效，无需重启。
  */
-/** 把“空格/逗号分隔字符串”或“数字数组”统一成数字数组（过滤非有限值）。控制台以字符串编辑，运行时以数组使用。 */
+/**
+ * 把“空格/逗号分隔字符串”或“数字数组”统一成数字数组。控制台以字符串编辑，运行时以数组使用。
+ *
+ * **只收正整数**：群号与 QQ 号恒为正，`Number("")` 却得到 0（`isFinite(0)` 为真），所以
+ * 「留空 = 不监听」会被解析成「监听 0 号」——面板清空后读回来永远是个 0，表现为“保存不了”。
+ * （同文件的 `parseNumberSeq` 靠 `filter(Boolean)` 先滤空串，等效；这里额外拒掉 0/负数/小数。）
+ */
 export function toIds(raw: unknown): number[] {
-  if (Array.isArray(raw)) return raw.map(Number).filter((n) => Number.isFinite(n));
-  if (typeof raw === 'string') return raw.split(/[\s,]+/).map(Number).filter((n) => Number.isFinite(n));
+  const ok = (n: number): boolean => Number.isInteger(n) && n > 0;
+  if (Array.isArray(raw)) return raw.map(Number).filter(ok);
+  if (typeof raw === 'string') return raw.split(/[\s,]+/).map(Number).filter(ok);
   return [];
 }
 
