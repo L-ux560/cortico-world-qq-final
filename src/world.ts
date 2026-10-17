@@ -3002,33 +3002,9 @@ export class QQWorld implements World {
         hint: this.identity ? `QQ ${this.identity.selfId}（${this.identity.nickname}）` : '未加载',
       },
       {
-        label: 'QQ空间动态',
-        state: this.qzone ? 'online' : 'offline',
-        hint: this.qzone ? `开启（今日 ${this.qzone.status().dailyCount}/${this.qzone.status().dailyQuota}${this.qzone.status().autoReply ? '，自动回评开' : ''}）` : '未开启',
-      },
-      {
         label: '群聊限速/防死循环',
         state: this.config.groupSpeak.enabled || this.config.antiLoop.enabled ? 'online' : 'offline',
         hint: `群发言限速=${this.config.groupSpeak.enabled ? `${this.config.groupSpeak.maxPerWindow}/${this.config.groupSpeak.windowSec}s` : '关'}；话题防死循环=${this.config.antiLoop.enabled ? `连续≤${this.config.antiLoop.maxConsecutiveBotTurns}/静默${this.config.antiLoop.idleToEndSec}s收尾` : '关'}`,
-      },
-      {
-        label: '情绪系统',
-        state: this.emotion?.isEnabled() ? 'online' : 'offline',
-        hint: this.emotion?.isEnabled() ? '已启用·每轮注入全局上下文' : '未启用',
-      },
-      {
-        label: '闹钟/记事本',
-        state: this.config.reminder.enabled ? 'online' : 'offline',
-        hint: this.config.reminder.enabled
-          ? `到点提醒开·待提醒 ${this.reminders?.list(true).length ?? 0} 条`
-          : '记录/查询可用，但到点自动提醒已关',
-      },
-      {
-        label: '好感度',
-        state: this.config.affinity.enabled ? 'online' : 'offline',
-        hint: this.config.affinity.enabled
-          ? `开启·已记录 ${this.affinity?.count() ?? 0} 人（每用户独立、可正可负、随互动浮动）`
-          : '未开启',
       },
     ];
     // 按模块拆分的控制台面板：每个模块一组完整可编辑配置（通用配置表单 + 运行时状态）。
