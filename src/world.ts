@@ -29,6 +29,11 @@ import { makeHistoryTools } from './history-tools.ts';
 import { Notebook } from './notebook.ts';
 import { festivalText } from './festival.ts';
 
+/** {@link QQWorld.resolveHelperModel} 的结果：要么给全三项，要么 ok=false。 */
+type ResolvedHelperModel =
+  | { ok: true; endpoint: string; apiKey: string; model: string }
+  | { ok: false };
+
 const SOURCE = 'qqbot';
 /** 合并转发节点里取不到昵称时的占位（对齐内置 qq 的 'QQ用户' 占位）。 */
 const PLACEHOLDER_NICKNAME = 'QQ用户';
@@ -86,6 +91,10 @@ export class QQWorld implements World {
   private asrSidecar: ChildProcess | null = null;
   private host: WorldHost | null = null;
   private log: Logger = consoleLogger();
+  /** 部署当前启用的主模型（启动时探测），供辅助 AI 任务在配置留空时跟随。 */
+  private autoEndpoint?: string;
+  private autoApiKey?: string;
+  private autoModel?: string;
   private driver: OneBotDriver | null = null;
   private identity: QQIdentity | null = null;
   private readonly convs = new Map<string, Conv>();
@@ -293,7 +302,12 @@ export class QQWorld implements World {
     // 反向监听必须在**任何连接建立之前**就备好鉴权 token：挂在 createDriver 里不够，
     // 因为面板/工具在 start 之后、driver 建立之前也可能读到 token（那时会是空）。
     this.ensureReverseToken();
-    this.vision = new Vision(this.config.vision, this.log, this.dataDir);
+    // 辅助 AI 任务（主动说话/动态/情绪/视觉）在配置留空时跟随部署主模型，故先探测一次。
+    this.detectActiveProvider();
+    this.vision = new Vision(this.config.vision, this.log, this.dataDir, () => {
+      const m = this.resolveHelperModel(this.config.vision, '辅助视觉');
+      return m.ok ? { endpoint: m.endpoint, apiKey: m.apiKey, model: m.model } : null;
+    });
     this.stickers = new StickerStore(this.stickerDirAbs || this.emojiDirAbs || join(this.packageDir, 'emoji'), this.config.vision, this.log, this.dataDir);
     this.syncConfigRoster();
     this.driver = this.createDriver();
@@ -576,11 +590,108 @@ export class QQWorld implements World {
     };
   }
 
+  /**
+   * 解析「辅助 AI 任务」（主动说话 / QQ空间动态 / 情绪感知 / 辅助视觉）实际该调哪个模型。
+   *
+   * 设计目标：**绝大多数用户零配置**。这四项任务原本各自写死 OpenRouter，
+   * 而用户装桌宠时配好的是自己的模型（比如 DeepSeek），于是装完一开主动说话就刷
+   * 「缺少 API Key」——默认值让人先失败一次，很不友好。
+   *
+   * 现在的规则（每个字段独立判断，都留空才算自动）：
+   *   - `apiKeySecret` 非空 → 用它指定的密钥（找不到就报可操作的错，不再沉默重试）；
+   *   - `endpoint`     非空 → 用它指定的地址；
+   *   - `model`        非空 → 用它指定的模型名；
+   *   - 任一项留空 → 从部署**当前启用的主模型**（activeProvider）自动取。
+   *
+   * 自动取法：读 `config.json` 的 activeProvider，再读
+   * `providers/<name>/config.json` 的 `baseUrl` / `secret` / `spec.model`，
+   * 密钥交给既有的 {@link resolveSecret}（先进程环境变量，再各 provider 目录下的 .env）。
+   * 这样用户已经在「模型供应商」里配好的东西直接复用，不必为每个小功能再配一遍。
+   */
+  private resolveHelperModel(cfg: { endpoint: string; apiKeySecret: string; model: string }, feature: string): ResolvedHelperModel {
+    const explicitSecret = cfg.apiKeySecret.trim();
+    const explicitEndpoint = cfg.endpoint.trim();
+    const explicitModel = cfg.model.trim();
+
+    // 用户显式指定了密钥名：只认它，找不到就直接给出可操作的提示。
+    if (explicitSecret) {
+      const key = this.resolveSecret(explicitSecret);
+      if (!key) {
+        this.log?.warn?.(
+          `${feature}：找不到密钥 ${explicitSecret}。` +
+            `请在桌宠的 provider 目录下的 .env 里写入 ${explicitSecret}=<你的密钥>，` +
+            '或把该配置项的「密钥名」留空以自动跟随主模型。',
+          { feature, secret: explicitSecret },
+        );
+        return { ok: false };
+      }
+      return {
+        ok: true,
+        endpoint: explicitEndpoint || this.autoEndpoint || '',
+        apiKey: key,
+        model: explicitModel || this.autoModel || '',
+      };
+    }
+
+    // 未指定密钥名 → 自动跟随主模型
+    if (this.autoEndpoint && this.autoApiKey) {
+      return {
+        ok: true,
+        endpoint: explicitEndpoint || this.autoEndpoint,
+        apiKey: this.autoApiKey,
+        model: explicitModel || this.autoModel || '',
+      };
+    }
+
+    // 自动探测也没成功：给出「下一步做什么」，而不是只报缺 key。
+    this.log?.warn?.(
+      `${feature}：未能自动确定要用的模型，且配置项里也没有指定。` +
+        '请任选一种：①在「模型供应商」里把一个可用供应商设为当前启用；' +
+        '②或在本功能的「模型地址 / 密钥名 / 模型名」三项里填入 OpenAI 兼容服务的信息。',
+      { feature },
+    );
+    return { ok: false };
+  }
+
+  /** 启动时探测部署当前启用的主模型，供 {@link resolveHelperModel} 兜底。 */
+  private detectActiveProvider(): void {
+    this.autoEndpoint = undefined;
+    this.autoApiKey = undefined;
+    this.autoModel = undefined;
+    try {
+      // dataDir = <DATA>/home/companion/data →部署配置在其上两级
+      const deployCfgPath = join(dirname(dirname(this.dataDir)), 'config.json');
+      if (!existsSync(deployCfgPath)) return;
+      const deployCfg = JSON.parse(readFileSync(deployCfgPath, 'utf8')) as { activeProvider?: string };
+      const name = deployCfg.activeProvider?.trim();
+      if (!name) return;
+      const providerDir = join(dirname(dirname(this.dataDir)), 'providers', name);
+      const providerCfgPath = join(providerDir, 'config.json');
+      if (!existsSync(providerCfgPath)) return;
+      const p = JSON.parse(readFileSync(providerCfgPath, 'utf8')) as {
+        baseUrl?: string;
+        secret?: string;
+        spec?: { model?: string };
+      };
+      const endpoint = p.baseUrl?.trim();
+      const secret = p.secret?.trim();
+      if (!endpoint || !secret) return;
+      const apiKey = this.resolveSecret(secret);
+      if (!apiKey) return;
+      this.autoEndpoint = endpoint.replace(/\/+$/, '');
+      this.autoApiKey = apiKey;
+      this.autoModel = p.spec?.model?.trim() || '';
+      this.log?.info?.(`辅助 AI 任务将跟随主模型：${name}（${this.autoModel || '默认模型'} @ ${this.autoEndpoint}）`);
+    } catch (err) {
+      this.log?.debug?.('自动探测主模型失败，辅助 AI 任务将使用显式配置', { err: String(err) });
+    }
+  }
+
   /** OpenAI 兼容 chat 补全（主动消息生成用），失败返回 null。
    *  主动说话需要「贴着事实」，故温度压到 0.5（默认 0.9 太飘，容易编造）。 */
   private async chatCompletion(messages: ChatMsg[]): Promise<string | null> {
     const cfg = this.config.proactive;
-    return this.completeChat(cfg.endpoint, cfg.apiKeySecret, cfg.model, messages, { temperature: 0.5, maxTokens: cfg.tokenLimit ?? 2000 });
+    return this.completeChat(cfg, messages, { temperature: 0.5, maxTokens: cfg.tokenLimit ?? 2000 }, '主动说话');
   }
 
   /**
@@ -819,40 +930,45 @@ export class QQWorld implements World {
   /** 动态生成（QQ空间）专用模型调用，与主动说话共用同一套 fetch 逻辑。 */
   private async qzoneCompletion(messages: ChatMsg[]): Promise<string | null> {
     const cfg = this.config.qzone as QZoneConfig;
-    return this.completeChat(cfg.endpoint, cfg.apiKeySecret, cfg.model, messages);
+    return this.completeChat(cfg, messages, undefined, 'QQ空间动态');
   }
 
-  /** OpenAI 兼容 chat/completions 调用（供主动说话与动态生成复用）。 */
+  /** OpenAI 兼容 chat/completions 调用（供主动说话、动态生成、情绪感知复用）。
+   *  模型来源由 {@link resolveHelperModel} 决定：配置项留空即自动跟随部署主模型。 */
   private async completeChat(
-    endpoint: string,
-    apiKeySecret: string,
-    model: string,
+    cfg: { endpoint: string; apiKeySecret: string; model: string },
     messages: ChatMsg[],
-    opts?: { temperature?: number; maxTokens?: number },
+    opts: { temperature?: number; maxTokens?: number } | undefined,
+    feature: string,
   ): Promise<string | null> {
-    const apiKey = this.resolveSecret(apiKeySecret);
-    if (!apiKey) {
-      this.log.warn('动态/主动说话缺少 API Key', { secret: apiKeySecret });
+    const m = this.resolveHelperModel(cfg, feature);
+    if (!m.ok) return null;
+    if (!m.endpoint) {
+      this.log.warn(`${feature}：未配置模型地址，且无法自动跟随主模型`, { feature });
+      return null;
+    }
+    if (!m.model) {
+      this.log.warn(`${feature}：未配置模型名，且主模型未声明模型`, { feature, endpoint: m.endpoint });
       return null;
     }
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 30000);
     try {
-      const res = await fetch(`${endpoint.replace(/\/$/, '')}/chat/completions`, {
+      const res = await fetch(`${m.endpoint}/chat/completions`, {
         method: 'POST',
         signal: ctrl.signal,
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ model, messages, temperature: opts?.temperature ?? 0.9, max_tokens: opts?.maxTokens ?? 200 }),
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${m.apiKey}` },
+        body: JSON.stringify({ model: m.model, messages, temperature: opts?.temperature ?? 0.9, max_tokens: opts?.maxTokens ?? 200 }),
       });
       if (!res.ok) {
-        this.log.warn('动态/主动说话模型返回非 200', { status: res.status });
+        this.log.warn(`${feature}：模型返回非 200`, { status: res.status, model: m.model, endpoint: m.endpoint });
         return null;
       }
       const json = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
       const text = json.choices?.[0]?.message?.content?.trim();
       return text || null;
     } catch (e) {
-      this.log.warn('动态/主动说话模型调用失败', { err: String(e) });
+      this.log.warn(`${feature}：模型调用失败`, { err: String(e), model: m.model, endpoint: m.endpoint });
       return null;
     } finally {
       clearTimeout(timer);
@@ -862,7 +978,7 @@ export class QQWorld implements World {
   /** 情绪感知专用补全：低温、较长输出；失败返回 null（由 EmotionEngine 兜底跳过）。 */
   private async moodCompletion(messages: ChatMsg[]): Promise<string | null> {
     const cfg = this.config.emotion;
-    return this.completeChat(cfg.endpoint, cfg.apiKeySecret, cfg.model, messages, { temperature: 0.2, maxTokens: 400 });
+    return this.completeChat(cfg, messages, { temperature: 0.2, maxTokens: 400 }, '情绪感知');
   }
 
   async stop(): Promise<void> {

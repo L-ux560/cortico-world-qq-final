@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeConfig } from '../src/config.ts';
+import { normalizeConfig, QQ_DEFAULTS } from '../src/config.ts';
 import { faceName, faceIdByName, QQ_FACE_IDS, QQ_FACE_NAMES } from '../src/qface-map.ts';
 
 // 这些函数不依赖 cortico 运行时，可在裸 node --test（非 node_modules 下）独立运行。
@@ -16,7 +16,27 @@ test('normalizeConfig 补全缺省值且保持对象引用身份（x-hot 生效�
   assert.equal(out.splitReplyBySentence, true);
   // vision 子对象原地合并，仍为同一引用
   assert.ok(out.vision);
-  assert.equal(out.vision.model, 'google/gemini-2.5-flash');
+});
+
+test('辅助 AI 任务默认跟随主模型（endpoint/密钥/模型名一律留空）', () => {
+  // 这四项任务原本各自写死 OpenRouter，而用户装桌宠时配好的是自己的模型（如 DeepSeek），
+  // 于是装完一开主动说话就刷「缺少 API Key」。留空=自动跟随 activeProvider 才做到零配置。
+  for (const seg of ['vision', 'proactive', 'qzone', 'emotion'] as const) {
+    const s = QQ_DEFAULTS[seg] as { endpoint: string; apiKeySecret: string; model: string };
+    assert.equal(s.endpoint, '', `${seg}.endpoint 应留空以跟随主模型`);
+    assert.equal(s.apiKeySecret, '', `${seg}.apiKeySecret 应留空以跟随主模型`);
+    assert.equal(s.model, '', `${seg}.model 应留空以跟随主模型`);
+  }
+});
+
+test('normalizeConfig 不会把留空的辅助模型字段回填成默认值', () => {
+  // 保证 normalizeConfig 不会「好心」填回 OpenRouter，破坏自动跟随。
+  const out = normalizeConfig({} as never);
+  for (const seg of ['vision', 'proactive', 'qzone', 'emotion'] as const) {
+    const s = out[seg] as { endpoint: string; apiKeySecret: string; model: string };
+    assert.equal(s.endpoint, '', `${seg}.endpoint 不应被回填`);
+    assert.equal(s.apiKeySecret, '', `${seg}.apiKeySecret 不应被回填`);
+  }
 });
 
 test('normalizeConfig 保留原始数组与 numbers', () => {

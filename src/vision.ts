@@ -23,12 +23,25 @@ export class Vision {
   private readonly dataDir: string;
   private readonly seenFile: string;
   private saveTimer: ReturnType<typeof setTimeout> | undefined;
+  /**
+   * 模型来源解析器，由 QQWorld 注入（复用它那套「留空=跟随主模型 + 密钥回退 providers/*.env」的逻辑）。
+   * 缺省时退回旧的直连行为，便于单独使用本类。
+   */
+  private readonly resolveModel:
+    | (() => { endpoint: string; apiKey: string; model: string } | null)
+    | undefined;
 
-  constructor(cfg: QQWorldConfig['vision'], log: Logger, dataDir = '') {
+  constructor(
+    cfg: QQWorldConfig['vision'],
+    log: Logger,
+    dataDir = '',
+    resolveModel?: () => { endpoint: string; apiKey: string; model: string } | null,
+  ) {
     this.cfg = cfg;
     this.log = log.child('vision');
     this.dataDir = dataDir;
     this.seenFile = dataDir ? join(dataDir, 'vision-seen.json') : '';
+    this.resolveModel = resolveModel;
     this.loadSeen();
   }
 
@@ -152,21 +165,37 @@ export class Vision {
   }
 
   private async describe(bytes: Uint8Array): Promise<string | null> {
-    const apiKey = process.env[this.cfg.apiKeySecret];
+    // 优先用注入的解析器（留空=跟随主模型，且密钥支持 providers/*.env 回退）；
+    // 未注入时退回「只查 process.env」的旧行为。
+    let endpoint = this.cfg.endpoint.replace(/\/$/, '');
+    let apiKey = this.cfg.apiKeySecret ? process.env[this.cfg.apiKeySecret] : undefined;
+    let model = this.cfg.model;
+    const injected = this.resolveModel?.();
+    if (injected) {
+      endpoint = injected.endpoint;
+      apiKey = injected.apiKey;
+      model = injected.model;
+    }
     if (!apiKey) {
-      this.log.warn('缺少视觉 API Key', { secret: this.cfg.apiKeySecret });
+      this.log.warn('辅助视觉缺少 API Key', {
+        secret: this.cfg.apiKeySecret || '(未指定，将尝试跟随主模型)',
+      });
+      return null;
+    }
+    if (!model) {
+      this.log.warn('辅助视觉未配置模型名，且主模型未声明模型', { endpoint });
       return null;
     }
     const base64 = Buffer.from(bytes).toString('base64');
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), this.cfg.timeoutMs);
     try {
-      const res = await fetch(`${this.cfg.endpoint.replace(/\/$/, '')}/chat/completions`, {
+      const res = await fetch(`${endpoint}/chat/completions`, {
         method: 'POST',
         signal: ctrl.signal,
         headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
         body: JSON.stringify({
-          model: this.cfg.model,
+          model,
           messages: [
             {
               role: 'user',

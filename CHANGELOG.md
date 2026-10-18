@@ -4,6 +4,24 @@
 
 规则：每版本一个二级标题，标题里的第一个版本号即为本节版本。
 
+## 0.3.7
+
+辅助 AI 任务改为**默认跟随主模型**，做到零配置。
+
+起因：装桌宠时用户配好的是自己的模型（如 DeepSeek），但「主动说话 / QQ空间动态 / 情绪感知 / 辅助视觉」这四项任务各自写死了 OpenRouter，于是装完一开主动说话就刷「缺少 API Key」——默认值让人先失败一次很不友好。更糟的是四处默认值本就不一致（视觉/主动/动态指向 OpenRouter，情绪指向 DeepSeek），且 `endpoint` 与 `apiKeySecret` 压根没注册到配置面板，用户无法自行修改。
+
+改动：
+
+- `vision` / `proactive` / `qzone` / `emotion` 四段的 `endpoint`、`apiKeySecret`、`model` **默认值改为空串**，含义是「自动跟随部署里当前启用的主模型」。
+- 新增 `QQWorld.resolveHelperModel()`：逐项判断——填了就用填的，没填就从 `config.json` 的 `activeProvider` 取 `baseUrl` / `secret` / 模型名，密钥交给既有的 `resolveSecret`（进程环境变量 → provider 目录下的 .env）。
+- 新增 `QQWorld.detectActiveProvider()`，在 `start()` 里探测一次并记入日志（含实际使用的 provider、模型与地址），便于用户确认「到底在用哪个模型」。
+- 显式填了密钥名但找不到时，告警会直接给出可操作的下一步（去哪个 .env 写什么，或留空以跟随主模型），不再只丢一个名字。
+- 四段的 `endpoint` / `apiKeySecret` **注册到配置面板**（各段新增「模型地址」「密钥名」两项），用户可在界面自行指定；`model` 字段描述补充「留空=跟随主模型」。
+- `Vision` 接受注入的模型解析器，复用同一套逻辑；此前它只查 `process.env`，拿不到 provider 目录下的 .env 密钥。
+- 回归测试：新增「四项任务默认留空」与「normalizeConfig 不会把留空字段回填成默认值」两条，防止以后又被写死。
+
+升级后**什么都不用配**即可使用主动说话等四项功能；若想单独指定某个 OpenAI 兼容服务，在对应面板填「模型地址 / 密钥名 / 模型名」即可。
+
 ## 0.3.6
 
 修正连接相关提示文案——0.3.0 起反向连接已强制带鉴权 Token，但界面与文档里还残留着「反向不用填 Token」的旧说法，会让人漏配而连不上。
