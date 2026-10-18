@@ -4,6 +4,14 @@
 
 规则：每版本一个二级标题，标题里的第一个版本号即为本节版本。
 
+## 0.3.8
+
+修复 0.3.7 的自动探测路径层级错误。
+
+- `detectActiveProvider()` 把**部署配置**和 **provider 目录**按同一层级去找了：两者都按「`dataDir` 往上两级」计算，于是部署配置被找成 `<DATA>/home/config.json`（实际在 `<DATA>/home/companion/config.json`）→探测静默失败 → 四个辅助 AI 任务全部报「未能自动确定要用的模型」。
+- 正确层级：`dataDir = <DATA>/home/companion/data`，**上一级**是 `companion`（部署配置在这），**上两级**是 `home`（各 provider 目录在这）。现按这两个层级分别取。
+- 新增回归测试锁住该路径推导，避免再犯。
+
 ## 0.3.7
 
 辅助 AI 任务改为**默认跟随主模型**，做到零配置。

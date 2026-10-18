@@ -138,6 +138,41 @@ test('日志不回显实际 token 值', async () => {
   );
 });
 
+test('自动探测主模型的路径层级正确（部署配置与 providers 在不同层）', async () => {
+  // 回归：曾把两者都按「往上两级」算，导致
+  //   部署配置被找成 <DATA>/home/config.json（实际在 <DATA>/home/companion/config.json）
+  // 而探测失败、四个辅助 AI 任务全部报「未能自动确定要用的模型」。
+  // 正确层级：dataDir=<DATA>/home/companion/data → 上一级=companion（部署配置）→ 上两级=home（providers）。
+  const fs = await import('node:fs');
+  const src = fs.readFileSync(new URL('../src/world.ts', import.meta.url), 'utf8');
+
+  const i = src.indexOf('private detectActiveProvider');
+  assert.ok(i > 0, '必须存在 detectActiveProvider');
+  const body = src.slice(i, src.indexOf('\n  }\n', i));
+
+  assert.ok(
+    /const companionDir = dirname\(this\.dataDir\)/.test(body),
+    '部署配置要用上一级（companionDir）',
+  );
+  assert.ok(
+    /const homeDir = dirname\(companionDir\)/.test(body),
+    'providers 目录要用上两级（homeDir）',
+  );
+  assert.ok(
+    /join\(companionDir, 'config\.json'\)/.test(body),
+    '部署配置路径应为 <companionDir>/config.json',
+  );
+  assert.ok(
+    /join\(homeDir, 'providers', name\)/.test(body),
+    'provider 目录应为 <homeDir>/providers/<name>',
+  );
+  // 反例：不能再出现「部署配置也用上两级」的写法
+  assert.ok(
+    !/join\(dirname\(dirname\(this\.dataDir\)\), 'config\.json'\)/.test(body),
+    '部署配置不应按上两级查找',
+  );
+});
+
 test('反向连接自动生成并持久化 token', async () => {
   const fs = await import('node:fs');
   const src = fs.readFileSync(new URL('../src/world.ts', import.meta.url), 'utf8');

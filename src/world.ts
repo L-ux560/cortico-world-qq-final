@@ -659,13 +659,17 @@ export class QQWorld implements World {
     this.autoApiKey = undefined;
     this.autoModel = undefined;
     try {
-      // dataDir = <DATA>/home/companion/data →部署配置在其上两级
-      const deployCfgPath = join(dirname(dirname(this.dataDir)), 'config.json');
+      // dataDir = <DATA>/home/companion/data
+      //   上一级 = <DATA>/home/companion  → 部署配置 config.json 在这
+      //   上两级 = <DATA>/home              → 各 provider 目录在这
+      const companionDir = dirname(this.dataDir);
+      const homeDir = dirname(companionDir);
+      const deployCfgPath = join(companionDir, 'config.json');
       if (!existsSync(deployCfgPath)) return;
       const deployCfg = JSON.parse(readFileSync(deployCfgPath, 'utf8')) as { activeProvider?: string };
       const name = deployCfg.activeProvider?.trim();
       if (!name) return;
-      const providerDir = join(dirname(dirname(this.dataDir)), 'providers', name);
+      const providerDir = join(homeDir, 'providers', name);
       const providerCfgPath = join(providerDir, 'config.json');
       if (!existsSync(providerCfgPath)) return;
       const p = JSON.parse(readFileSync(providerCfgPath, 'utf8')) as {
