@@ -561,7 +561,7 @@
             <h3>设置正向服务器 —— 顺便把 Token 存下来</h3>
             <p>点<strong>「+ WS 正向服务器」</strong>，弹出的编辑窗里，监听 IP、端口这些用默认值就好。</p>
             <p>唯一要动手的是底部的<strong>鉴权 Token</strong>：<strong>把它复制下来存到别处备用</strong>，后面在桌宠里要填的就是这一串。</p>
-            <figure class="shot"><img src="img/step-04.png" alt="编辑 WS 正向服务器弹窗，红框标出鉴权 Token" loading="lazy"></figure>
+            <figure class="shot"><img src="img/step-05.png" alt="编辑 WS 正向服务器弹窗，红框标出鉴权 Token" loading="lazy"></figure>
             <p>确认「启用此连接」是打开的，然后点右下角的<strong>「保存连接」</strong>。</p>
             <div class="callout tip">
               <span class="ico">🔌</span>
@@ -580,7 +580,7 @@
               <li><strong>鉴权 Token</strong>：填桌宠生成的那串（见第 13 步「连接与监听」页面顶部）。这个弹窗里的提示写着「外部应用通过查询参数在 Authorization Header / URL Query 传参」——桌宠两种都收。</li>
               <li>其余项（连接名称、消息上报模式、连接角色、心跳间隔、重连间隔）保持默认，然后同样点右下角的<strong>「保存连接」</strong>。</li>
             </ul>
-            <figure class="shot"><img src="img/step-17.png" alt="编辑 WS 反向客户端弹窗，红框标出需要手填的服务端 WebSocket 地址" loading="lazy"></figure>
+            <figure class="shot"><img src="img/step-17.png" alt="编辑 WS 反向客户端弹窗，红框标出服务端 WebSocket URL 与鉴权 Token" loading="lazy"></figure>
             <div class="callout tip">
               <span class="ico">🔑</span>
               <div>这个弹窗里也有一个 Token，但它<strong>不是</strong>桌宠要填的那个 —— 桌宠填的是上一步<strong>正向服务器</strong>里的 Token，别拿混了。</div>
@@ -682,7 +682,7 @@
           <div class="step-body">
             <h3>配置连接（默认反向，Token 要填到 NapCat）</h3>
             <p>点左侧<strong>「QQ 群聊」</strong>进入面板，默认停在<strong>「连接与监听」</strong>这一页。按下图红框核对三处：</p>
-            <figure class="shot"><img src="img/step-13.png" alt="连接与监听页：保持 reverse、端口与 NapCat 一致、Token 需两边一致" loading="lazy"></figure>
+            <figure class="shot"><img src="img/step-13.png" alt="连接与监听页：保持 reverse、监听地址保持 127.0.0.1、复制顶部的反向连接 Token" loading="lazy"></figure>
             <ul class="do">
               <li><strong>连接模式</strong>保持 <code>reverse</code>（反向），这是默认值，不用改。</li>
               <li><strong>反向监听端口</strong>要和 NapCat 里<strong>「设置反向客户端」</strong>填的端口一致（默认 <code>8080</code>）；<strong>反向监听路径</strong>默认 <code>/onebot/v11/ws</code>，也要和 NapCat 一致。</li>
