@@ -576,7 +576,7 @@
             <h3>设置反向客户端 —— 主要是填对地址</h3>
             <p>再点<strong>「+ WS 反向客户端」</strong>。这里最容易卡住的地方是：</p>
             <ul class="do">
-              <li><strong>服务端 WebSocket URL</strong> 的输入框<strong>是空的</strong>（虽然它下面给了默认地址的提示），需要你手动粘贴进去 ——<br><code>ws://127.0.0.1:8080/onebot/v11</code></li>
+              <li><strong>服务端 WebSocket URL</strong> 的输入框<strong>是空的</strong>（虽然它下面给了默认地址的提示），需要你手动粘贴进去 ——<br><code>ws://127.0.0.1:<桌宠面板上的反向监听端口>/onebot/v11</code></li>
               <li>其余项保持默认，然后同样点右下角的<strong>「保存连接」</strong>。</li>
             </ul>
             <figure class="shot"><img src="img/step-05.png" alt="编辑 WS 反向客户端弹窗，红框标出需要手填的服务端 WebSocket 地址" loading="lazy"></figure>
@@ -742,7 +742,7 @@
         <label class="check-item"><input type="checkbox" data-key="c3"><span>正向服务器和反向客户端都配置好、各自点了「保存连接」</span></label>
         <label class="check-item"><input type="checkbox" data-key="c4"><span>两条连接都配完后，点了页面右上角的「保存」</span></label>
         <label class="check-item"><input type="checkbox" data-key="c5"><span>正向服务器的鉴权 Token 已经复制存好</span></label>
-        <label class="check-item"><input type="checkbox" data-key="c6"><span>反向客户端的地址填的是 <code>ws://127.0.0.1:8080/onebot/v11</code></span></label>
+        <label class="check-item"><input type="checkbox" data-key="c6"><span>反向客户端的地址填的是 <code>ws://127.0.0.1:<桌宠面板上的反向监听端口>/onebot/v11</code></span></label>
         <label class="check-item"><input type="checkbox" data-key="c7"><span>桌宠里 QQ 扩展已安装，并在 World 总览里启用了</span></label>
         <label class="check-item"><input type="checkbox" data-key="c8"><span>Token 已填入桌宠并「保存并重启」，顶部显示「已连接」</span></label>
         <label class="check-item"><input type="checkbox" data-key="c9"><span>监听名单里填了要管理的群号 / QQ 号</span></label>

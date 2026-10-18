@@ -116,6 +116,22 @@ test('反向连接自动生成并持久化 token', async () => {
   assert.ok(src.includes('randomBytes'), 'token 必须随机生成，不可预测');
 });
 
+test('token 必须在 start() 里就备好，不能只挂在建连接时', async () => {
+  // 回归：0.3.0~0.3.1 只在 createDriver() 里生成 token，而面板/工具在 start 之后、
+  // driver 建立之前也可能读 token，那段时间读到的是空串 → 用户以为没生成。
+  const fs = await import('node:fs');
+  const src = fs.readFileSync(new URL('../src/world.ts', import.meta.url), 'utf8');
+
+  const startAt = src.indexOf('async start(host: WorldHost)');
+  assert.ok(startAt > 0, '必须存在 start()');
+  // 取start() 开头到第一个 driver.start() 之前的片段
+  const head = src.slice(startAt, src.indexOf('this.driver.start()', startAt));
+  assert.ok(
+    head.includes('ensureReverseToken'),
+    'start() 里必须无条件调用 ensureReverseToken()，不能依赖 createDriver',
+  );
+});
+
 test('toIds 只收正整数（回归：空串曾被解析成 [0]）', () => {
   assert.deepEqual(toIds(''), []);
   assert.deepEqual(toIds('   '), []);

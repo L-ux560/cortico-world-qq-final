@@ -198,6 +198,10 @@ export class QQWorld implements World {
       }
     }
     this.config.token = token;
+    // 注意：world 实例拿不到框架的配置写入 API（`World` 契约里没有持久化方法，
+    // 框架的 setConfigPath 是 bot.ts 的内部函数）。所以 token 只持久化到上面的
+    // reverse-token.txt；config.json 里的 token 字段保持用户自己填的值（默认为空）。
+    // 每次启动都会从这个文件读回同一串，因此跨重启稳定。
     this.log?.warn?.(
       `反向连接未配置 token，已自动生成：${token} —— 请在 NapCat「设置反向客户端」的 Token 里填同一串，否则连不上`,
     );
@@ -214,7 +218,7 @@ export class QQWorld implements World {
    * 注意 config 是 ctx.cfg 的同一引用（normalizeConfig 原地补全），这里读到的就是最新值。
    */
   private createDriver(): OneBotDriver {
-    // 建 driver 前先确保反向监听带鉴权（start 与 restartConnection 都走这里，不会漏）。
+    //建 driver 前再确认一次（restartConnection 也走这里，配置刚被改过时兜底）。
     this.ensureReverseToken();
     return new OneBotDriver({
       mode: this.config.mode,
@@ -286,6 +290,9 @@ export class QQWorld implements World {
   async start(host: WorldHost): Promise<void> {
     this.host = this.wrapHost(host);
     this.log = this.host.log.child('qq');
+    // 反向监听必须在**任何连接建立之前**就备好鉴权 token：挂在 createDriver 里不够，
+    // 因为面板/工具在 start 之后、driver 建立之前也可能读到 token（那时会是空）。
+    this.ensureReverseToken();
     this.vision = new Vision(this.config.vision, this.log, this.dataDir);
     this.stickers = new StickerStore(this.stickerDirAbs || this.emojiDirAbs || join(this.packageDir, 'emoji'), this.config.vision, this.log, this.dataDir);
     this.syncConfigRoster();
