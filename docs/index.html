@@ -685,9 +685,10 @@
             <figure class="shot"><img src="img/step-13.png" alt="连接与监听页：保持 reverse、监听地址保持 127.0.0.1、复制顶部的反向连接 Token" loading="lazy"></figure>
             <ul class="do">
               <li><strong>连接模式</strong>保持 <code>reverse</code>（反向），这是默认值，不用改。</li>
-              <li><strong>反向监听端口</strong>要和 NapCat 里<strong>「设置反向客户端」</strong>填的端口一致（默认 <code>8080</code>）；<strong>反向监听路径</strong>默认 <code>/onebot/v11/ws</code>，也要和 NapCat 一致。</li>
-              <li><strong>OneBot Token</strong>：反向连接<strong>必须填 Token</strong>。把桌宠生成的那串填到<strong>反向客户端弹窗的「鉴权 Token」</strong>里，两边必须一字不差。</li>
+              <li><strong>反向监听端口</strong>要和协议端里<strong>「设置反向客户端」</strong>填的端口一致（<strong>照抄桌宠面板上显示的值</strong>，出厂默认 <code>8080</code>）；<strong>反向监听路径</strong>默认 <code>/onebot/v11/ws</code>，也要和协议端一致。</li>
+              <li><strong>OneBot Token</strong>：反向连接<strong>必须填 Token</strong>。把桌宠生成的那串填到<strong>反向客户端弹窗的「鉴权 Token」</strong>里，两边必须一字不差，然后<strong>点「保存连接」</strong>。</li>
             </ul>
+            <div class="callout warn"><span class="ico">⚠</span><div><strong>（别忘了点「保存连接」）</strong>弹窗里填完 Token 直接关掉<strong>不会生效</strong>，必须点「保存连接」按钮。填完不保存 → 协议端不会重连 → 桌宠就会一直显示「未连接」，尽管 Token 明明填对了。</div></div>
             <div class="callout tip">
               <span class="ico">&#128161;</span>
               <div>改完连接参数后，点面板右上角的<strong>「重启连接」</strong>就能立刻生效，<strong>不用重启整个桌宠</strong>。</div>

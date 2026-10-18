@@ -162,7 +162,7 @@
             "items": {
               "type": "string"
             },
-            "description": "附图链接数组（file:// / http(s):// / base64://）。"
+            "description": "附图链接数组（仅支持 http(s):// 与 base64://；出于安全考虑不支持本机文件）。"
           },
           "ats": {
             "type": "array",

@@ -235,18 +235,39 @@ function makePanel(m: ModuleSpec): WebUiPanel {
         });
         bar.appendChild(restart);
 
-        // 反向连接首次启动会自动生成 token（并持久化到 dataDir/reverse-token.txt），
-        // 用户必须知道它才能填进 NapCat「设置反向客户端」。这里按需取一次并显示。
+        // 反向连接会自动生成鉴权 Token（持久化到 dataDir/reverse-token.txt，跨重启不变）。
+// 用户必须把它复制到协议端「设置反向客户端」的鉴权 Token 并保存，否则连不上。
+// 这里把三步流程直接列出来，避免用户漏掉「保存」这一步。
         if (m.id === 'general') {
           void ctx.invoke('getReverseToken', []).then((r) => {
-            const t = typeof r === 'string' ? r : '';
+            const t = typeof r === 'string' ? r.trim() : '';
             if (!t) return;
             const box = document.createElement('div');
-            box.className = 'msgline';
-            box.style.cssText = 'margin-top:8px;font-size:12px';
-            box.textContent =
-              `反向连接 Token（自动生成，已保存到 dataDir/reverse-token.txt）：${t}` +
-              ' — 请在 NapCat「设置反向客户端」的 Token 里填同一串，否则连不上。';
+            box.style.cssText =
+              'margin-top:10px;padding:10px 12px;border-radius:8px;font-size:12px;line-height:1.7;' +
+              'border:1px solid rgba(220,38,38,.35);background:rgba(220,38,38,.06)';
+            const title = document.createElement('div');
+            title.style.cssText = 'font-weight:600;margin-bottom:2px';
+            title.textContent = '反向连接还需要一步：把下面这串 Token 交给协议端';
+            const code = document.createElement('div');
+            code.className = 'mono';
+            code.style.cssText = 'word-break:break-all;padding:4px 6px;margin:4px 0;border-radius:4px;background:rgba(0,0,0,.06)';
+            code.textContent = t;
+            const steps = document.createElement('ol');
+            steps.style.cssText = 'margin:4px 0 0 18px;padding:0';
+            for (const s of [
+              '在协议端（NapCat / SnowLuma）里打开这个 Bot 的「设置反向客户端」',
+              '把上面这串粘进「鉴权 Token」输入框',
+              '点「保存连接」——别忘了这一步，不保存不会生效',
+            ]) {
+              const li = document.createElement('li');
+              li.textContent = s;
+              steps.appendChild(li);
+            }
+            const foot = document.createElement('div');
+            foot.style.cssText = 'margin-top:4px;opacity:.75';
+            foot.textContent = 'Token 自动生成并保存在 dataDir/reverse-token.txt，重启不会变；漏填或不保存都会连不上。';
+            box.append(title, code, steps, foot);
             bar.parentElement?.insertBefore(box, bar.nextSibling);
           }, () => { /* 取不到就不提示，不影响其它功能 */ });
         }
@@ -257,8 +278,9 @@ function makePanel(m: ModuleSpec): WebUiPanel {
         tip.style.opacity = '0.7';
         tip.style.margin = '0 0 10px';
         tip.innerHTML =
-          '默认是<b>反向连接</b>：桌宠开监听、NapCat 主动连入，此时 <b>OneBot Token 留空</b>即可。' +
-          '只有改成「正向连接」时才需要填 Token（填 NapCat 里<b>正向 WS 服务器</b>那个）。';
+          '默认是<b>反向连接</b>：桌宠开监听、协议端（NapCat / SnowLuma）主动连入。' +
+          '<b>Token 必填</b>——桌宠会自动生成一串，把它填进协议端「设置反向客户端」的鉴权 Token 并保存。' +
+          '只有改成「正向连接」时才改填协议端<b>正向 WS 服务器</b>那个 Token。';
         sheet.body.appendChild(tip);
       }
 

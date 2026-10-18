@@ -210,12 +210,32 @@ function makePanel(m) {
         bar.appendChild(restart);
         if (m.id === "general") {
           void ctx.invoke("getReverseToken", []).then((r) => {
-            const t = typeof r === "string" ? r : "";
+            const t = typeof r === "string" ? r.trim() : "";
             if (!t) return;
             const box = document.createElement("div");
-            box.className = "msgline";
-            box.style.cssText = "margin-top:8px;font-size:12px";
-            box.textContent = `\u53CD\u5411\u8FDE\u63A5 Token\uFF08\u81EA\u52A8\u751F\u6210\uFF0C\u5DF2\u4FDD\u5B58\u5230 dataDir/reverse-token.txt\uFF09\uFF1A${t} \u2014 \u8BF7\u5728 NapCat\u300C\u8BBE\u7F6E\u53CD\u5411\u5BA2\u6237\u7AEF\u300D\u7684 Token \u91CC\u586B\u540C\u4E00\u4E32\uFF0C\u5426\u5219\u8FDE\u4E0D\u4E0A\u3002`;
+            box.style.cssText = "margin-top:10px;padding:10px 12px;border-radius:8px;font-size:12px;line-height:1.7;border:1px solid rgba(220,38,38,.35);background:rgba(220,38,38,.06)";
+            const title = document.createElement("div");
+            title.style.cssText = "font-weight:600;margin-bottom:2px";
+            title.textContent = "\u53CD\u5411\u8FDE\u63A5\u8FD8\u9700\u8981\u4E00\u6B65\uFF1A\u628A\u4E0B\u9762\u8FD9\u4E32 Token \u4EA4\u7ED9\u534F\u8BAE\u7AEF";
+            const code = document.createElement("div");
+            code.className = "mono";
+            code.style.cssText = "word-break:break-all;padding:4px 6px;margin:4px 0;border-radius:4px;background:rgba(0,0,0,.06)";
+            code.textContent = t;
+            const steps = document.createElement("ol");
+            steps.style.cssText = "margin:4px 0 0 18px;padding:0";
+            for (const s of [
+              "\u5728\u534F\u8BAE\u7AEF\uFF08NapCat / SnowLuma\uFF09\u91CC\u6253\u5F00\u8FD9\u4E2A Bot \u7684\u300C\u8BBE\u7F6E\u53CD\u5411\u5BA2\u6237\u7AEF\u300D",
+              "\u628A\u4E0A\u9762\u8FD9\u4E32\u7C98\u8FDB\u300C\u9274\u6743 Token\u300D\u8F93\u5165\u6846",
+              "\u70B9\u300C\u4FDD\u5B58\u8FDE\u63A5\u300D\u2014\u2014\u522B\u5FD8\u4E86\u8FD9\u4E00\u6B65\uFF0C\u4E0D\u4FDD\u5B58\u4E0D\u4F1A\u751F\u6548"
+            ]) {
+              const li = document.createElement("li");
+              li.textContent = s;
+              steps.appendChild(li);
+            }
+            const foot = document.createElement("div");
+            foot.style.cssText = "margin-top:4px;opacity:.75";
+            foot.textContent = "Token \u81EA\u52A8\u751F\u6210\u5E76\u4FDD\u5B58\u5728 dataDir/reverse-token.txt\uFF0C\u91CD\u542F\u4E0D\u4F1A\u53D8\uFF1B\u6F0F\u586B\u6216\u4E0D\u4FDD\u5B58\u90FD\u4F1A\u8FDE\u4E0D\u4E0A\u3002";
+            box.append(title, code, steps, foot);
             bar.parentElement?.insertBefore(box, bar.nextSibling);
           }, () => {
           });
@@ -225,7 +245,7 @@ function makePanel(m) {
         tip.style.fontSize = "12px";
         tip.style.opacity = "0.7";
         tip.style.margin = "0 0 10px";
-        tip.innerHTML = "\u9ED8\u8BA4\u662F<b>\u53CD\u5411\u8FDE\u63A5</b>\uFF1A\u684C\u5BA0\u5F00\u76D1\u542C\u3001NapCat \u4E3B\u52A8\u8FDE\u5165\uFF0C\u6B64\u65F6 <b>OneBot Token \u7559\u7A7A</b>\u5373\u53EF\u3002\u53EA\u6709\u6539\u6210\u300C\u6B63\u5411\u8FDE\u63A5\u300D\u65F6\u624D\u9700\u8981\u586B Token\uFF08\u586B NapCat \u91CC<b>\u6B63\u5411 WS \u670D\u52A1\u5668</b>\u90A3\u4E2A\uFF09\u3002";
+        tip.innerHTML = "\u9ED8\u8BA4\u662F<b>\u53CD\u5411\u8FDE\u63A5</b>\uFF1A\u684C\u5BA0\u5F00\u76D1\u542C\u3001\u534F\u8BAE\u7AEF\uFF08NapCat / SnowLuma\uFF09\u4E3B\u52A8\u8FDE\u5165\u3002<b>Token \u5FC5\u586B</b>\u2014\u2014\u684C\u5BA0\u4F1A\u81EA\u52A8\u751F\u6210\u4E00\u4E32\uFF0C\u628A\u5B83\u586B\u8FDB\u534F\u8BAE\u7AEF\u300C\u8BBE\u7F6E\u53CD\u5411\u5BA2\u6237\u7AEF\u300D\u7684\u9274\u6743 Token \u5E76\u4FDD\u5B58\u3002\u53EA\u6709\u6539\u6210\u300C\u6B63\u5411\u8FDE\u63A5\u300D\u65F6\u624D\u6539\u586B\u534F\u8BAE\u7AEF<b>\u6B63\u5411 WS \u670D\u52A1\u5668</b>\u90A3\u4E2A Token\u3002";
         sheet.body.appendChild(tip);
       }
       if (m.extra === "asr") {

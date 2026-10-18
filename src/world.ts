@@ -2310,7 +2310,7 @@ export class QQWorld implements World {
         properties: {
           content: { type: 'string', description: '动态正文；留空则自动生成（结合最近聊天与记忆，以第一人称发表看法/吐槽/简介）。' },
           topic: { type: 'string', description: '自动生成时的方向提示，如「吐槽最近的天气」「介绍一下小明」。' },
-          images: { type: 'array', items: { type: 'string' }, description: '附图链接数组（file:// / http(s):// / base64://）。' },
+          images: { type: 'array', items: { type: 'string' }, description: '附图链接数组（仅支持 http(s):// 与 base64://；出于安全考虑不支持本机文件）。' },
           ats: { type: 'array', items: { type: 'string' }, description: '@的人：昵称或 QQ 号数组。' },
           permission: { type: 'number', description: '可见权限 ugc_right，默认 1=公开。' },
         },
