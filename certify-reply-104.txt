@@ -1,0 +1,45 @@
+Fixed in cortico-world-qq-final@0.3.0 (and mirrored to cortico-world-qq-final-beta@0.2.0-beta.13). Thank you for the review -- all five points were valid and are addressed.
+
+Security
+
+1. Reverse WS no longer listens on all interfaces by default. QQ_DEFAULTS.wsHost is now 127.0.0.1 instead of 0.0.0.0 (src/config.ts). Reaching it from another machine now requires explicitly setting wsHost.
+
+2. Reverse connections always authenticate. Two layers:
+   - world.ensureReverseToken() generates a random 24-byte token when the config token is empty and persists it to dataDir/reverse-token.txt, so it survives restarts. It is shown in the startup log and in the console "connection and listening" panel (new getReverseToken method) so it can be pasted into NapCat.
+   - driver.assertReverseListenerIsSafe() refuses to start when the listen address is not loopback and no token is set, rather than silently serving an unauthenticated port. Loopback with an empty token only logs a warning.
+   Also, onClientConnect now closes the previous connection before adopting a new one, instead of overwriting `active` and leaving the old socket able to send and receive.
+
+3. Emoji path traversal fixed. [emoji:file] previously did join(emojiDir, fname) directly, so ..\..\ reached any file on the machine and it would be sent out as an image. resolveEmojiFile() in src/normalize.ts now rejects absolute paths and any ".." segment, requires the resolved path to stay inside the emoji directory, re-verifies via realpathSync so a symlink cannot escape, and requires a regular file. Anything else is silently dropped, matching the previous behaviour for a missing file.
+
+4. file:// removed from qzone post images. Images come from LLM tool arguments and can be steered by prompt injection in group messages. post() now allow-lists http(s):// and base64:// only and logs the dropped ones. Tool description and README updated.
+
+Dependency (cortico-world-memory)
+
+Reframed rather than changed, because the framework offers no alternative: the World contract in Cortico/src/core/types.ts only exposes main-loop callbacks (onTurnEnded / onEventsSettled / onBatchEnd / onIdle), which are invoked on the world itself, and there is no publish/subscribe channel between worlds. Writing to another world's storage cannot be expressed as an event.
+
+So this is documented as what it is -- an optional enhancement, not a dependency. The package does not import cortico-world-memory and does not require it: every notebook method checks for the bridge at call time and falls back to a native JSONL backend, so all qq_notebook_* tools work with the memory plugin absent. The bridge surface is four pure-data methods (save/list/get/forget), it exposes none of the plugin's internals, and the plugin deletes the key on stop so this extension reverts to native immediately. This is now stated in README under "Relationship with cortico-world-memory" and in the notebook.ts header comment.
+
+Version claim corrected
+
+My "v0.3.3" was wrong -- I misread a badge in the screenshot. The actual version I tested on is resources/app/package.json version 0.2.4 (Node 22, console on port 17788). Corrected in the re-submission.
+
+README vs code
+
+All fixed, verified by a script that diffs describe.json tool names against README mentions:
+- api: 5 -> api: 6.
+- Removed the entire "voice call (call)" chapter plus voiceTranscribeUrl / voiceExtraAsr / voiceFfmpegPath / voiceTranscribeTimeout. None of these exist in the code; call.* and audio_bridge_poc were never included in the published tarball. Voice configuration now describes the real asr.* group.
+- Documented the 9 tools that were missing (qq_admin_kick, qq_alias_set/forget/list, qq_poke, qq_proactive_status/trigger, qq_sticker_stats, qq_view_image). README now covers all 37.
+
+Deprecation
+
+cortico-world-qq-final-beta is deprecated on npm with a notice pointing at cortico-world-qq-final.
+
+Verification
+
+- pnpm check:extension: "Extension check passed." for both packages, no warnings.
+- Tests: 19 passing (6 config + 6 normalize + 7 new security). The new tests/security.test.ts pins each fix above so they cannot silently regress; the emoji test covers "..\..\", absolute paths and a symlink pointing outside the directory.
+- TypeScript diagnostics unchanged from before this round (67 before, 67 after, 0 new) -- the standalone clone has no node_modules, so those are all missing-@types artifacts. I verified this with a git worktree of the previous commit rather than assuming.
+
+Noted on the non-official-client badge: understood, and it does not affect certification.
+
+Note for reviewers: 0.3.0 changes the default listen address and now requires a token in reverse mode, so this is a breaking change for anyone relying on the old unauthenticated LAN setup. The CHANGELOG calls that out, and the migration is either fill in the auto-generated token or keep wsHost at 127.0.0.1.

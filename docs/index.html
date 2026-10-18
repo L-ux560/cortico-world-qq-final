@@ -636,7 +636,7 @@
 
       <div class="callout tip">
         <span class="ico">&#128300;</span>
-        <div><strong>先说默认：</strong>QQ Final 默认走<strong>反向连接</strong>——桌宠开监听、NapCat 主动连进来。所以<strong>「OneBot Token」默认留空</strong>就行，只有你把连接模式改成<strong>「正向」</strong>时才需要填 Token。</div>
+        <div><strong>先说默认：</strong>QQ Final 默认走<strong>反向连接</strong>，并强制带 Token 鉴权——桌宠开监听、NapCat 主动连进来。所以<strong>「OneBot Token」默认留空</strong>就行，只有你把连接模式改成<strong>「正向」</strong>时才需要填 Token。</div>
       </div>
 
       <div class="steps">
@@ -679,13 +679,13 @@
         <div class="step" id="s13">
           <div class="rail"><span class="dot">13</span></div>
           <div class="step-body">
-            <h3>配置连接（默认反向，不用填 Token）</h3>
+            <h3>配置连接（默认反向，Token 要填到 NapCat）</h3>
             <p>点左侧<strong>「QQ 群聊」</strong>进入面板，默认停在<strong>「连接与监听」</strong>这一页。按下图红框核对三处：</p>
-            <figure class="shot"><img src="img/step-13.png" alt="连接与监听页：保持 reverse、端口与 NapCat 一致、Token 留空" loading="lazy"></figure>
+            <figure class="shot"><img src="img/step-13.png" alt="连接与监听页：保持 reverse、端口与 NapCat 一致、Token 需两边一致" loading="lazy"></figure>
             <ul class="do">
               <li><strong>连接模式</strong>保持 <code>reverse</code>（反向），这是默认值，不用改。</li>
               <li><strong>反向监听端口</strong>要和 NapCat 里<strong>「设置反向客户端」</strong>填的端口一致（默认 <code>8080</code>）；<strong>反向监听路径</strong>默认 <code>/onebot/v11/ws</code>，也要和 NapCat 一致。</li>
-              <li><strong>OneBot Token</strong>：反向连接<strong>留空</strong>。只有切成 <code>forward</code>（正向）时，才填 NapCat<strong>「设置正向服务器」</strong>里那个 Token。</li>
+              <li><strong>OneBot Token</strong>：反向连接<strong>必须填 Token</strong>。把这一串填到 NapCat 「设置反向客户端」的 Token 里<strong>「设置正向服务器」</strong>里那个 Token。</li>
             </ul>
             <div class="callout tip">
               <span class="ico">&#128161;</span>
