@@ -6,9 +6,9 @@ Cortico 的 **QQ（OneBot v11 / NapCat）** World 扩展。以 `fat-fish` 仓库
 
 - 包名：`cortico-world-qq-final`
 - World id：`qqbot`（与内置 `qq` 区分，可并存；如需独占可禁用内置 world）
-- 框架契约：`api: 5`
+- 框架契约：`api: 6`
 
-> ⚠️ **语音电话（call）功能仍不成熟，慎用。** 本扩展的「语音」指两类不同能力：① **语音消息（ASR+TTS）**：收发 QQ 语音消息并转写/合成，相对可用（见下「语音」章）；② **语音电话（call）**：模拟实时通话。`call.mode='simulated'`（语音消息会话模拟通话）相对可用；`call.mode='system'`（真接系统电话 / 实时对讲）为**实验性**，依赖 Windows **CABLE 虚拟声卡手动路由**、`audio_bridge_poc` 桥进程稳定性、ASR/TTS 侧车，问题较多——「AI 没声 / 不接电话」多半是桥崩或路由没设对，而非配置错。**请勿在生产或重要场景依赖 `system` 模式。**
+> ⚠️ **本扩展的「语音」指语音消息（ASR+TTS）**：收发 QQ 语音消息并转写/合成，相对可用（见下「语音」章）。**不含实时通话功能**——OneBot/NapCat 无法接入运营商电话，本扩展不做「模拟通话」。
 
 ## 与 fat-fish / 内置 qq 的关系
 
@@ -100,10 +100,16 @@ Cortico 的 **QQ（OneBot v11 / NapCat）** World 扩展。以 `fat-fish` 仓库
 | `voice.voiceTtsModel` | `tts-1` | 语音合成模型名（OpenAI 兼容 `/audio/speech`，GLM 用 `glm-tts`，VoxCPM2 一般为 `openbmb/VoxCPM2`） |
 | `voice.voiceTimeout` | `120` | 请求超时（秒）：TTS/ASR 单次请求最长等待，`custom` 与 `local` 共用，本地推理慢可调大（1~1800） |
 | `voice.voiceExtraTts` | `{}` | TTS 额外参数（JSON 字符串）：合并进 `/audio/speech` 请求体，用于本地模型高级特性（如 VoxCPM2 声音克隆 `{"reference_audio":"<url或base64>"}`、声音设计 `{"voice_design":"一个温柔的少年音"}`、或 `{"language":"zh"}`） |
-| `voice.voiceExtraAsr` | `{}` | ASR 额外参数（JSON 字符串）：合并进 `/audio/transcriptions` 表单（如 `{"language":"zh"}`） |
-| `voice.voiceTranscribeUrl` | `""` | **专用识别服务地址（alont1 风格 ASR）**：POST `{地址}/asr` 收 WAV 字节 → `{text}`。非空时**优先**走此路（ffmpeg 把 SILK/AMR 解码成 WAV 再送识别），比 OpenAI `/audio/transcriptions` 更稳地处理 QQ 原生 SILK 语音；空=走供应商自带 ASR |
-| `voice.voiceTranscribeTimeout` | `60000` | 识别超时（毫秒）：单次 ffmpeg 解码 + `/asr` 请求共用，超时回退供应商自带 ASR 或文字（1000~600000） |
-| `voice.voiceFfmpegPath` | `""` | ffmpeg 可执行文件路径（用于把 SILK/AMR 解码成 WAV）。空=依次找 PATH 与仓库 `node_modules/ffmpeg-static`（win 用 `ffmpeg.exe`）；找不到则识别服务不可用 |
+| `asr.mode` | `local` | 语音识别后端：`local`（本地 FunASR / 自建服务）· `cloud`（OpenAI 兼容 `/audio/transcriptions`） |
+| `asr.localEngine` | `funasr` | 本地引擎名（`funasr` 等），仅 `local` 生效 |
+| `asr.localModelPath` | `""` | 本地模型目录；留空=用引擎默认 |
+| `asr.localVenv` | `""` | 本地推理所用Python 虚拟环境路径 |
+| `asr.localPort` | `8778` | 本地推理服务端口（仅 `local`） |
+| `asr.cloudUrl` | `""` | OpenAI 兼容 ASR 基址（`cloud` 必填），如 `http://127.0.0.1:8000/v1` |
+| `asr.cloudApiKeySecret` | `ASR_API_KEY` | 从环境变量名读取 API Key |
+| `asr.cloudModel` | `glm-asr-2512` | 云端 ASR 模型名 |
+| `asr.ffmpegPath` | `""` | ffmpeg 可执行文件路径（用于把 SILK/AMR 解码成 WAV）。空=依次找 PATH 与仓库 `node_modules/ffmpeg-static`（win 用 `ffmpeg.exe`）；找不到则语音识别不可用 |
+| `asr.transcribeTimeout` | `60000` | 识别超时（毫秒）：单次 ffmpeg 解码 + 识别请求共用（1000~600000） |
 | `voice.voxcpmUrl` | `http://127.0.0.1:8765` | 选 `voxcpm` 供应商时必填：本地 VoxCPM2 TTS 服务基址（如 Fat-Fish 的 `vox_tts_server.py`）。服务暴露 `GET /health`（就绪返回 `{"ready":true,"state":"ready"}`）与 `POST /tts`（返回 48kHz WAV） |
 | `voice.voxcpmVoiceDesc` | `可爱傲娇少女音` | VoxCPM2 说话人音色（自然语言描述） |
 | `voice.voxcpmSpeed` | `1.0` | VoxCPM2 合成语速（0.5~2） |
@@ -154,21 +160,6 @@ Cortico 的 **QQ（OneBot v11 / NapCat）** World 扩展。以 `fat-fish` 仓库
 
 > 说明：好感度是 bot 自发的"关系判断"，加不加、加多少由它在对话里自己拿捏（也可用工具显式调整）。开关 `affinity.enabled` 只控制是否自动注入上下文；`qq_affinity_*` 工具始终可用（`x-hot` 实时生效）。
 
-## 语音电话（call，实验性 — 慎用）
-
-> ⚠️ **该功能仍不成熟，请谨慎使用。** 仅 `call.mode='simulated'` 相对可用；`call.mode='system'`（真接系统电话 / 实时对讲）为实验性，依赖较多外部条件。
-
-OneBot / NapCat 无法真正接入运营商电话，本扩展以两种方式「模拟通话」：
-
-- **`simulated`（默认）**：触发词接听 → ASR 转写 → LLM 应答 → 分句流式 TTS → 挂断词 / 超时挂断，全程走 OneBot 语音消息。复用「语音（ASR+TTS）」的供应商，**零额外硬件 / 路由要求，相对可用**。
-- **`system`（实验性，慎用）**：通过 `audio_bridge_poc` 真正捕获对方声音、并把 AI 的 TTS 喂进 **CABLE 虚拟声卡 Input**，由 QQ 当作「麦克风」发出，接近实时对讲。该模式不成熟，原因：
-  1. **音频路由须手动配置**：QQ 的「麦克风」必须手动选成 CABLE Output（Win11 24H2 下无法用程序自动切音频端点），否则「AI 没声 / 对方听不到你」。这是系统限制，不是 bug。
-  2. **桥进程稳定性**：`audio_bridge_poc/call_bridge.py` 常驻桥进程，崩溃后虽有自愈拉起，通话中途仍可能断流。
-  3. **侧车依赖**：识别 / 合成依赖「语音」章的供应商；侧车不可达或超时会导致通话无内容。
-  4. 「AI 没声 / 不接电话」多半是桥崩或路由没选对，排查先看桥进程是否在跑、CABLE 路由是否选对，再谈改配置。
-
-相关配置（`worlds.qqbot.call`）：`mode`（`simulated`/`system`）、`bridgeScript`（桥脚本绝对路径，未配则按扩展目录回溯查找）、`bridgePython`（桥所用 python 解释器，未配则回溯 `venv_vox` 等并兜底 `python`）、`bridgeUrl`（桥服务基址，默认 `http://127.0.0.1:8799`）、`answerWords`（接听词）、`hangupWords`（挂断词）、`timeoutSec`（超时挂断秒数）。
-
 ## 语音（ASR + TTS）
 
 让 bot 能**听语音**（ASR，语音消息转文字）也能**说语音**（TTS，文字回复念成语音）。设计目标是**供应商不写死、可插拔**，方便对接不同模型商或本地模型（例如 VoxCPM2）。
@@ -187,20 +178,10 @@ OneBot / NapCat 无法真正接入运营商电话，本扩展以两种方式「�
 |---|---|---|---|
 | `native` | 无 | OneBot 原生 `translate_record` + `tts` | 零依赖、开箱即用；依赖 NapCat 服务端已解码 SILK 等格式 |
 | `custom` | 需要 API Key | OpenAI 兼容 `/audio/transcriptions` + `/audio/speech` | 远程模型服务（OpenAI / GLM / 自建兼容服务），配 `voiceBaseUrl`+`voiceApiKeySecret` |
-| `local` | **免 Key** | OpenAI 兼容 `/audio/transcriptions` + `/audio/speech` | 本地/自建模型（如 VoxCPM2 经 vLLM-Omni）；慢推理靠 `voiceTimeout` 加超时；高级特性靠 `voiceExtraTts`/`voiceExtraAsr` 额外参数透传 |
+| `local` | **免 Key** | OpenAI 兼容 `/audio/transcriptions` + `/audio/speech` | 本地/自建模型（如 VoxCPM2 经 vLLM-Omni）；慢推理靠 `voiceTimeout` 加超时；高级特性靠 `voiceExtraTts` 额外参数透传 |
 | `voxcpm` | **免 Key** | 自有接口 `GET /health` + `POST /tts`（返回 48kHz WAV） | 本机已有一份 **VoxCPM2 TTS 服务**（如 Fat-Fish 的 `vox_tts_server.py`）；音色用自然语言描述、免 Key、快；**仅做 TTS，收语音回退 `native` 识别** |
 
 `native` / `custom` / `local` 三档共用同一套 OpenAI 兼容协议：`ASR`=`POST {baseUrl}/audio/transcriptions`（表单 `file`+`model`+额外参数），`TTS`=`POST {baseUrl}/audio/speech`（JSON `model`+`voice`+`input`+额外参数）。`voxcpm` 走自有协议（见下）。
-
-### 专用识别服务（alont1 风格 ASR，更稳地处理 QQ 原生 SILK 语音）
-
-如果现有供应商的 ASR 识别不了 QQ 发来的 **SILK/AMR** 语音（OpenAI 兼容端点一般只认 wav/mp3/flac），可单独配一个**识别服务**，与上面三档供应商解耦：
-
-- **原理**（参考 alont1 的实现）：先用 **ffmpeg** 把语音 url 解码成 `16k 单声道 WAV`（`-f wav -ac 1 -ar 16000 pipe:1`，best-effort），再把 WAV 字节 `POST {voiceTranscribeUrl}/asr`（content-type `audio/wav`）发到你的识别服务，服务返回 `{ text: "..." }`。
-- **配置**：`voice.voiceTranscribeUrl` 填识别服务地址（如 `http://127.0.0.1:7798`），配了之后**优先走这条**；识别失败/超时则自动回退到供应商自带 ASR（native 的 `translate_record` / custom·local 的 `/audio/transcriptions`），再不行就当无文字处理，绝不阻塞消息。
-- **ffmpeg**：`voice.voiceFfmpegPath` 可指定 ffmpeg 路径；留空则依次找 `PATH` 与仓库 `node_modules/ffmpeg-static`（win 用 `ffmpeg.exe`）。找不到 ffmpeg 时识别服务不可用，会自动跳过走其他 ASR。
-- **超时**：`voice.voiceTranscribeTimeout`（毫秒，默认 60000）约束"解码 + /asr 请求"的单次耗时。
-- **服务契约**：你只需提供一个 `POST /asr` 接口，收 WAV 字节、回 `{text}`，即可对接任意后端（faster-whisper、VoxCPM2 的 ASR、私有 ASR 等），无需改本插件代码。
 
 ### 接入本地模型（以 VoxCPM2 为例）
 
@@ -247,7 +228,7 @@ python vox_tts_server.py --host 127.0.0.1 --port 8765
 行为要点：
 
 - **TTS**：语义判定认为该念语音时，把文本 `POST /tts` 拿到 WAV，作为 `record` 语音段发出；若服务未就绪（`/health` 返回 `{ready:false}` 或 `state` 非 `ready`，例如刚启动还在加载模型）或合成失败，自动**回退文字**，不阻塞消息。
-- **ASR（收语音）**：VoxCPM2 服务不含语音识别，`voxcpm` 供应商的收语音**回退到 `native`**（即 NapCat 的 `translate_record`）。如需更稳的本地识别，另配 `voice.voiceTranscribeUrl` 专用识别服务即可，该路径优先于供应商自带 ASR。
+- **ASR（收语音）**：VoxCPM2 服务不含语音识别，`voxcpm` 供应商的收语音**回退到 `native`**（即 NapCat 的 `translate_record`）。若想用本地模型识别，改用 `asr.mode='local'`（见「语音识别（ASR 共享）」配置组）。
 - 与 `local` 区别：`local` 走 OpenAI 兼容 `/audio/speech`（适合 VoxCPM2 经 vLLM-Omni 的场景）；`voxcpm` 走上述自有 `/tts` 接口（适合已有一个独立 TTS 服务的场景）。按你本地实际部署选其一。
 
 
@@ -307,7 +288,30 @@ interface VoiceProvider {
   - `qq_admin_title`：给成员设置**群专属头衔**（`who` + `title`，`title` 为空则清除）。
   - `qq_admin_ban`：**禁言**某成员（`who` + `durationSec`，默认 600 秒，0 表示解禁）。
   - `qq_admin_ban_all`：**全员禁言**开关（`enable` = true 开启、false 关闭）。
+  - `qq_admin_kick`：【群管理员·需授权】把某成员踢出群聊（踢人/飞机票）。`who` 填昵称、QQ 号或外号；省略则默认针对最近被引用或 @ 提及的人。`rejectRejoin=true`（默认）表示踢出并拒绝其再次加群。
   - 群参数 `group` 支持「群号」或 `group:<群号>`；不填则使用当前会话所在群。成员参数 `who` 支持昵称（自动按群内昵称解析）或 QQ 号。
+
+## 外号记忆（alias）
+
+`who` 类参数（禁言、设头衔、戳一戳、踢人、好感度…）除了昵称和 QQ 号，还能填你事先登记的**外号/代称**，由本扩展代为解析成对应的人：
+
+- `qq_alias_set`：登记「外号 → QQ 号」（长期记忆，跨重启保留）。同名外号会被覆盖。
+- `qq_alias_forget`：删除某个外号。
+- `qq_alias_list`：列出当前记住的所有「外号 → QQ 号」对应关系。
+
+## 戳一戳
+
+- `qq_poke`：戳一戳某个人（群戳一戳或私聊戳一戳）。`target` 为会话地址 `group:<群号>` 或 `private:<QQ号>`；`user` 为要戳的人的 QQ 号或群内昵称（私聊时留空表示戳对话对象）。这是一个动作而非文字消息。
+
+## 主动说话调度器
+
+- `qq_proactive_status`：查看调度器状态——运行态（暖场/稳定/静默）、今日已发/配额、各会话的未回复与静默情况、最近主动说过的话。
+- `qq_proactive_trigger`：手动触发一次主动说话（随机挑一个可主动的监听会话，或用 `address` 指定如 `private:123`），便于测试。
+
+## 表情包与视觉
+
+- `qq_sticker_stats`：查看已自动收藏的表情包统计——总数、按情感分布、最近若干条（含情感/用处/标签/文件名）。想给 QQ 回复发表情包图片时，**先调本工具拿到真实文件名**（返回里形如 `[表情包:xxx.jpg]`），再把整段 `[表情包:文件名]` 写进回复文本即可自动发出；不要编造不存在的文件名。
+- `qq_view_image`：主动重新看一张刚收到的 QQ 图片（当被动视觉没拿到描述、或你想细看时）。不传 `url` 则看最近收到的一张，也可传 `url` 指定任意图片链接，返回图片的文字描述。
 
 ## 智能体私人笔记本（notebook）
 
@@ -359,9 +363,21 @@ interface VoiceProvider {
 4. 整机重启 Cortico（`POST /api/run/restart` 或重启进程）。
 5. 在 NapCat 配置反向/正向 WebSocket 指向本扩展。
 
+## 与 cortico-world-memory 的关系（可选，非依赖）
+
+「智能体私人笔记本」（`qq_notebook_*` 工具）默认写入本扩展自己的 `dataDir/notebook.jsonl`，**开箱即用、不需要装任何东西**。
+
+若同时启用了 [`cortico-world-memory`](https://www.npmjs.com/package/cortico-world-memory)，笔记本会自动改写到它的 `qq` scope，从而享受该插件的常驻环境提示词与混合检索；插件停用后会自动回退到原生 JSONL。后端在**每次调用时惰性判定**，与两个 World 的启动顺序无关。
+
+说明几点：
+
+- **不是硬依赖**：本扩展不 import 该插件，也不要求它存在。缺了它，所有功能照常，只是没有检索增强。
+- **为什么不是事件流**：框架的 `World` 契约里只有主循环回调（`onTurnEnded` / `onEventsSettled` / `onBatchEnd` / `onIdle` 等），**没有 World 之间的发布/订阅通道**，无法把「写入另一个 World 的存储」表达成事件。因此采用最小能力协商：由被调用方在 `start()` 时登记一个只含 `save/list/get/forget` 四个纯数据方法的窄接口，调用方按需探测，取不到就用本地实现。
+- **耦合面很小**：接口不暴露对方内部状态；插件停止时键被删除，本扩展即刻回到原生后端。
+
 ## 已知限制 / 与原版的差异
 
-- 语音解码：QQ 语音多为 **SILK** 编码。`native` 供应商由 NapCat 服务端（如 NapCat 的 `translate_record`）解码最稳；`custom`/`local` 供应商走 OpenAI 兼容接口，一般要求 wav/mp3/flac，对 SILK 支持不稳。若识别不了 SILK，可配 **`voice.voiceTranscribeUrl` 专用识别服务**（ffmpeg 解码 SILK→WAV 后 `POST /asr`），该路径优先于供应商自带 ASR；需本机有 ffmpeg（见 `voice.voiceFfmpegPath`）。本地/远程服务不可达或超时（`voiceTimeout` / `voiceTranscribeTimeout` 控制）时不阻塞对话，按 `voice.audioFallback` 回退文字。
+- 语音解码：QQ 语音多为 **SILK** 编码。`native` 供应商由 NapCat 服务端（如 NapCat 的 `translate_record`）解码最稳；`custom`/`local` 供应商走 OpenAI 兼容接口，一般要求 wav/mp3/flac，对 SILK 支持不稳。若识别不了 SILK，可把 `asr.mode` 设为 `local`（本地 FunASR 自带 SILK 解码），需本机有 ffmpeg（见 `asr.ffmpegPath`）。本地/远程服务不可达或超时（`asr.transcribeTimeout` 控制）时不阻塞对话，回退文字。
 - 合并转发展开、视频/文件等大二进制默认只做文本占位（不自动作为附件，避免撑爆上下文）。
 - 群成员名片为空时尝试补一次 `get_group_member_info`，但离线名片仍以 NapCat 推送为准。
 - 引用回复走实时 `get_msg`（与 fat-fish 一致），需要 NapCat 暴露该 API；引用库外消息也能正确拉取。
@@ -373,4 +389,3 @@ interface VoiceProvider {
 - 回评 action 名（默认 `send_qzone_comment`）按 NapCat 版本不同可能变化，失败请在控制台改 `qzone.commentAction`。
 - `qq_qzone_feeds` 拉取列表为 best-effort，取决于 NapCat 是否实现 `get_qzone_msg_list`；取不到时返回空。
 - 动态文案默认走 OpenRouter `google/gemini-2.5-flash` 生成，需配置对应 API Key；`content` 留空且未配 Key 时退化为简短占位文案。
-- 语音电话（call）`system` 模式为**实验性**：依赖 Windows CABLE 虚拟声卡**手动**路由 + `audio_bridge_poc` 桥进程 + ASR/TTS 侧车，问题较多，**慎用**；`simulated` 模式（语音消息会话模拟）相对可用。详见上文「语音电话（call，实验性）」。

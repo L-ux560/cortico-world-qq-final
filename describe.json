@@ -145,7 +145,7 @@
     },
     {
       "name": "qq_qzone_post",
-      "description": "在 QQ 空间发一条动态（说说）。内容按「最近聊天 + 你对人或事的真实看法」自己生成：可省略 content 让它自动按对话与记忆发挥（topic 给方向，如“吐槽最近的天气/介绍某人”）；也可直接给 content 发你写好的。可附图片（images：file://、http(s):// 或 base64:// 链接）与 @人（ats：昵称或 QQ 号）。permission 默认 1=公开。返回 tid 供后续删除/回复。",
+      "description": "在 QQ 空间发一条动态（说说）。内容按「最近聊天 + 你对人或事的真实看法」自己生成：可省略 content 让它自动按对话与记忆发挥（topic 给方向，如“吐槽最近的天气/介绍某人”）；也可直接给 content 发你写好的。可附图片（images：仅支持 http(s):// 与 base64:// 链接，出于安全考虑不支持本机文件）与 @人（ats：昵称或 QQ 号）。permission 默认 1=公开。返回 tid 供后续删除/回复。",
       "parameters": {
         "type": "object",
         "properties": {

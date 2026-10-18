@@ -1,8 +1,53 @@
 import { nowIso, shortTime } from 'cortico/core/util.ts';
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, realpathSync } from 'node:fs';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { faceName, faceIdByName } from './qface-map.ts';
 import type { OneBotSegment } from './types.ts';
+
+/**
+ * 把「表情包:文件名」解析成表情包目录内的绝对路径，越界一律拒绝。
+ *
+ * 这个标记的文本来自**入站消息**，也就是群友可控内容。若直接 `join(emojiDir, fname)`，
+ * `..\..\` 能一路逃出表情包目录，指向本机任意文件，再作为图片发出去——等于把
+ * 「读取任意文件并外传」的能力交给任何能发言的人。这里做三重收敛：
+ *   1. 拒绝绝对路径与含 `..` 的名字；
+ *   2. 解析后必须仍落在 emojiDir 之内（含符号链接指向的真实路径再验一次）；
+ *   3. 必须是普通文件。
+ * 任何一条不满足就当作「未配置/文件缺失」，静默丢弃该标记（与原有降级行为一致）。
+ */
+function resolveEmojiFile(emojiDir: string, fname: string): string | null {
+  try {
+    if (!fname || fname.length > 200) return null;
+    if (isAbsolute(fname) || /^[a-zA-Z]:/.test(fname) || fname.includes('\0')) return null;
+    // 归一化各平台分隔符后，任何 `..` 片段都直接拒绝
+    const unified = fname.replace(/\//g, sep);
+    if (unified.split(sep).some((seg) => seg === '..')) return null;
+
+    const base = resolve(emojiDir);
+    const target = resolve(base, unified);
+    const rel = relative(base, target);
+    if (!rel || rel.startsWith('..') || isAbsolute(rel)) return null;
+
+    // 符号链接再验一次真实路径，防止「目录内软链指向目录外」
+    let realBase = base;
+    let realTarget = target;
+    try {
+      realBase = realpathSync(base);
+      realTarget = realpathSync(target);
+    } catch {
+      return null; // 目录或文件不存在
+    }
+    const realRel = relative(realBase, realTarget);
+    if (!realRel || realRel.startsWith('..') || isAbsolute(realRel)) return null;
+
+    return target;
+  } catch {
+    return null;
+  }
+}
+
+// 仅供测试断言路径收敛用（命名空间导出不进入运行时契约）。
+export const __resolveEmojiFileForTest = resolveEmojiFile;
 
 /** 把 OneBot 消息段数组渲染为对模型友好的纯文本（含引用/表情/@ 标注）。 */
 export function renderIncoming(
@@ -112,10 +157,10 @@ export function buildOutgoing(text: string, emojiDir = ''): OneBotSegment[] {
       if (inner.startsWith('表情包:')) {
         const fname = inner.slice('表情包:'.length).trim();
         if (emojiDir && fname) {
-          const p = join(emojiDir, fname);
-          if (existsSync(p)) segments.push({ type: 'image', data: { file: p } });
+          const p = resolveEmojiFile(emojiDir, fname);
+          if (p && existsSync(p)) segments.push({ type: 'image', data: { file: p } });
         }
-        // 目录未配置或文件缺失：丢弃该标记
+        // 目录未配置 / 文件缺失 / 路径越界：丢弃该标记（不入群消息里的可读文本）
       } else if (/^表情\s*\d+(?:[:：][^\]]*)?$/.test(inner)) {
         const id = inner.match(/^表情\s*(\d+)/)![1];
         segments.push({ type: 'face', data: { id: Number(id) } });

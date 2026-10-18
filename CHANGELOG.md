@@ -4,6 +4,23 @@
 
 规则：每版本一个二级标题，标题里的第一个版本号即为本节版本。
 
+## 0.3.0
+
+安全修复（认证评审 `Pal-AI-Lab/cortico-extensions#104` 要求）。**含行为变更，升级前请读**：
+
+- **反向监听默认改为 `127.0.0.1`**，不再是 `0.0.0.0`。原来默认监听所有网卡，同网段任何机器都能连入、读取 bot 下行消息并伪造入站事件（含 `get_group_member_info` 等管理接口）。若你确实需要对外监听，须显式改 `wsHost` **并设置 OneBot Token**，否则会拒绝启动。
+- **反向连接必须带鉴权**：token 留空时自动生成随机 token 并持久化到 `dataDir/reverse-token.txt`（跨重启稳定），控制台「连接与监听」页与启动日志会显示，请填进 NapCat「设置反向客户端」。driver 侧新增安全闸：对外监听且无 token 时直接拒绝启动。
+- **修复表情包路径穿越**：`[表情包:文件名]` 过去直接 `join(emojiDir, fname)`，群友发 `..\..\` 即可让 bot 读取并外传本机任意文件。现做三重收敛——拒绝绝对路径与 `..`、解析后必须仍在表情包目录内、符号链接按真实路径复验、必须是普通文件；越界一律静默丢弃。
+- **QQ 空间附图不再接受 `file://`**：该协议会让 NapCat 直接读取本机文件上传，等于把「读取并外传本机文件」交给任何能影响模型输出的人（如群消息提示词注入）。现只接受 `http(s)://` 与 `base64://`。
+- 新增 `tests/security.test.ts`（7 项）固化上述修复，防止回退。
+
+文档修正（与代码对齐）：
+
+- `api: 5` → `api: 6`（此前写错）。
+- 移除「语音电话（call）」整章与 `voice.voiceTranscribeUrl` / `voice.voiceExtraAsr` / `voice.voiceFfmpegPath` / `voice.voiceTranscribeTimeout` 等**代码里并不存在的配置项**（`call.*` 与 `audio_bridge_poc` 从未包含在发布包内）。语音相关配置改为如实描述现有的 `asr.*` 段。
+- 补齐文档中漏写的 9 个工具：`qq_admin_kick`、`qq_alias_set/forget/list`、`qq_poke`、`qq_proactive_status/trigger`、`qq_sticker_stats`、`qq_view_image`。现README 覆盖全部 37 个工具。
+- 新增「与 cortico-world-memory 的关系」一节，说明笔记本是**可选增强而非依赖**（未装该插件时回退原生 JSONL，功能完整），并说明框架 `World` 契约没有 World 间发布/订阅通道，故采用最小能力协商而非事件流。
+
 ## 0.2.12
 
 - 声明市场标签 `im` / `qq` / `external-setup`，便于在市场里按平台筛选（`external-setup` 表示需先装好 NapCat）。

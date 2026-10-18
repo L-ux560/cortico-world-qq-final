@@ -56,7 +56,7 @@ export interface QZonePosterOpts {
   chatCompletion: (messages: ChatMsg[]) => Promise<string | null>;
   /** 最近聊天上下文（文本），用于让动态“有话可说”。 */
   getContext: () => string;
-  /** 取一条最近的 QQ 图片 URL（file://|http(s)://|base64://），供自动附图。 */
+  /** 取一条最近的 QQ 图片 URL（http(s)://|base64://），供自动附图。 */
   getRecentImageUrl?: () => string | null;
   /** 取 API Key。 */
   resolveSecret: (name: string | undefined) => string | undefined;
@@ -202,10 +202,22 @@ export class QZonePoster {
       if (!body.includes('@' + name)) body = `@${name} ` + body;
     }
 
-    const images: string[] = [...(opts.images ?? [])];
+    // images 来自 LLM 生成的工具参数（可被群消息里的提示词注入影响），只放行「网络可达」的地址。
+    // 曾经支持 file:// 让 NapCat 直接读本机文件上传——那等于把「读取并外传本机任意文件」
+    // 的能力交给任何能影响模型输出的人。这里按白名单过滤，其余（含 file://）一律丢弃并告警。
+    const images: string[] = [];
+    const dropped: string[] = [];
+    for (const raw of opts.images ?? []) {
+      const u = typeof raw === 'string' ? raw.trim() : '';
+      if (/^https?:\/\//i.test(u) || /^base64:\/\//i.test(u)) images.push(u);
+      else dropped.push(u.slice(0, 60));
+    }
     if (!images.length && this.cfg.imageMode === 'recent') {
-      const u = this.opts.getRecentImageUrl?.();
-      if (u) images.push(u);
+      const u = this.opts.getRecentImageUrl?.() ?? '';
+      if (/^https?:\/\//i.test(u) || /^base64:\/\//i.test(u)) images.push(u);
+    }
+    if (dropped.length) {
+      this.log.warn('已丢弃不允许的附图地址（只接受 http(s):// 与 base64://）', { dropped });
     }
 
     const params: Record<string, unknown> = { content: body };

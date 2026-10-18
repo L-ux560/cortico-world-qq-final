@@ -234,6 +234,22 @@ function makePanel(m: ModuleSpec): WebUiPanel {
           },
         });
         bar.appendChild(restart);
+
+        // 反向连接首次启动会自动生成 token（并持久化到 dataDir/reverse-token.txt），
+        // 用户必须知道它才能填进 NapCat「设置反向客户端」。这里按需取一次并显示。
+        if (m.id === 'general') {
+          void ctx.invoke('getReverseToken', []).then((r) => {
+            const t = typeof r === 'string' ? r : '';
+            if (!t) return;
+            const box = document.createElement('div');
+            box.className = 'msgline';
+            box.style.cssText = 'margin-top:8px;font-size:12px';
+            box.textContent =
+              `反向连接 Token（自动生成，已保存到 dataDir/reverse-token.txt）：${t}` +
+              ' — 请在 NapCat「设置反向客户端」的 Token 里填同一串，否则连不上。';
+            bar.parentElement?.insertBefore(box, bar.nextSibling);
+          }, () => { /* 取不到就不提示，不影响其它功能 */ });
+        }
         sheet.body.appendChild(bar);
 
         const tip = document.createElement('div');

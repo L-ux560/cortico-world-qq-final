@@ -208,6 +208,18 @@ function makePanel(m) {
           }
         });
         bar.appendChild(restart);
+        if (m.id === "general") {
+          void ctx.invoke("getReverseToken", []).then((r) => {
+            const t = typeof r === "string" ? r : "";
+            if (!t) return;
+            const box = document.createElement("div");
+            box.className = "msgline";
+            box.style.cssText = "margin-top:8px;font-size:12px";
+            box.textContent = `\u53CD\u5411\u8FDE\u63A5 Token\uFF08\u81EA\u52A8\u751F\u6210\uFF0C\u5DF2\u4FDD\u5B58\u5230 dataDir/reverse-token.txt\uFF09\uFF1A${t} \u2014 \u8BF7\u5728 NapCat\u300C\u8BBE\u7F6E\u53CD\u5411\u5BA2\u6237\u7AEF\u300D\u7684 Token \u91CC\u586B\u540C\u4E00\u4E32\uFF0C\u5426\u5219\u8FDE\u4E0D\u4E0A\u3002`;
+            bar.parentElement?.insertBefore(box, bar.nextSibling);
+          }, () => {
+          });
+        }
         sheet.body.appendChild(bar);
         const tip = document.createElement("div");
         tip.style.fontSize = "12px";

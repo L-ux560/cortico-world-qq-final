@@ -282,9 +282,13 @@ export const QQ_DEFAULTS: QQWorldConfig = {
   mode: 'reverse',
   allowPrivateRedirect: true,
   wsUrl: 'ws://127.0.0.1:3001',
-  wsHost: '0.0.0.0',
+  // 反向监听默认只绑回环：绑 0.0.0.0 会让同网段任何机器都能连进来，
+  // 拿到 bot 要发的消息、伪造事件，甚至借群管鉴权接口越权。要对外监听请显式改这一项。
+  wsHost: '127.0.0.1',
   wsPort: 8080,
   wsPath: '/onebot/v11/ws',
+  // 反向模式下留空会自动生成并持久化一个随机 token（见 world.ts 的 ensureReverseToken），
+  // 不会退化成「无鉴权监听」。正向连接留空表示不校验。
   token: '',
   groups: [],
   privates: [],
@@ -476,10 +480,10 @@ export const QQ_CONFIG_GROUP: ConfigGroup = {
         description: '注入到提示词「现在时间」与事件时间戳的时区（按 UTC 偏移标注，默认中国 UTC+8）。改完即时生效，无需重启。',
       },
       'worlds.qqbot.wsUrl': { type: 'string', title: '正向 WS 地址', 'x-hot': false },
-      'worlds.qqbot.wsHost': { type: 'string', title: '反向监听地址', 'x-hot': false },
-      'worlds.qqbot.wsPort': { type: 'integer', title: '反向监听端口', minimum: 1, maximum: 65535, 'x-hot': false },
-      'worlds.qqbot.wsPath': { type: 'string', title: '反向监听路径', 'x-hot': false },
-      'worlds.qqbot.token': { type: 'string', title: 'OneBot Token', 'x-hot': false },
+      'worlds.qqbot.wsHost': { type: 'string', title: '反向监听地址', 'x-hot': false, description: '默认 127.0.0.1（只允许本机接入）。改成 0.0.0.0 会让同网段任何机器都能连上并伪造事件，必须同时设置 OneBot Token，否则会拒绝启动。' },
+      'worlds.qqbot.wsPort': { type: 'integer', title: '反向监听端口', minimum: 1, maximum: 65535, 'x-hot': false, description: '需与 NapCat「设置反向客户端」里填的端口一致。' },
+      'worlds.qqbot.wsPath': { type: 'string', title: '反向监听路径', 'x-hot': false, description: '需与 NapCat「设置反向客户端」里填的路径一致，默认 /onebot/v11/ws。' },
+      'worlds.qqbot.token': { type: 'string', title: 'OneBot Token', 'x-hot': false, description: '反向连接留空会自动生成一个随机 token 并保存到 dataDir/reverse-token.txt（启动日志与控制台「连接与监听」页会显示），请把它填进 NapCat「设置反向客户端」的 Token。仅正向连接时填 NapCat「设置正向服务器」那个 Token；留空表示不校验。' },
       'worlds.qqbot.groups': { type: 'string', title: '监听群', 'x-hot': true, description: '监听的群号，用空格或逗号分隔；空=全部群。改完即时生效，不用重启。' },
       'worlds.qqbot.privates': { type: 'string', title: '监听私聊', 'x-hot': true, description: '监听的私聊对方 QQ 号，用空格或逗号分隔。改完即时生效，不用重启。' },
       'worlds.qqbot.deliverImageAttachments': { type: 'boolean', title: '图片作为模型附件', 'x-hot': true },

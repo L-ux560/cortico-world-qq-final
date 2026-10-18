@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync, readdirSync, openSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { createConnection } from 'node:net';
 import { type BlobInput, type EventEnvelope, type Language, type Logger, type PromptDocDecl, type ToolDef, type ToolSpec, type World, type WorldWebUiDecl, type WorldHost, type WorldLamp, type WorldPanelDecl, type WorldStreamSocket } from 'cortico/core/types.ts';
 import { shortTime } from 'cortico/core/util.ts';
@@ -171,11 +172,50 @@ export class QQWorld implements World {
   // ---- 生命周期 ----
 
   /**
+   * 反向监听必须带鉴权：连接进来的那一端能读到 bot 要发的全部消息、也能伪造入站事件
+   * （`get_group_member_info` 之类的管理接口就走这条连接）。若配置里 token 为空，
+   * 这里生成一个随机 token 并持久化到 dataDir，保证**任何情况下都不会退化成无鉴权监听**，
+   * 同时跨重启稳定，用户只需把它填进 NapCat 一次。
+   *
+   * 绑回环（127.0.0.1）时这仍是有意义的第二道锁：同机其它进程/恶意网页脚本都连不上。
+   */
+  private ensureReverseToken(): void {
+    if (this.config.mode !== 'reverse') return;
+    if (this.config.token) return;
+    const file = join(this.dataDir, 'reverse-token.txt');
+    let token = '';
+    try {
+      token = readFileSync(file, 'utf8').trim();
+    } catch {
+      /* 首次运行，下面生成 */
+    }
+    if (!/^[0-9a-f]{32,}$/i.test(token)) {
+      token = randomBytes(24).toString('hex');
+      try {
+        writeFileSync(file, token, { encoding: 'utf8', mode: 0o600 });
+      } catch (err) {
+        this.log?.warn?.('无法持久化反向连接 token，重启后会变化', { err: String(err) });
+      }
+    }
+    this.config.token = token;
+    this.log?.warn?.(
+      `反向连接未配置 token，已自动生成：${token} —— 请在 NapCat「设置反向客户端」的 Token 里填同一串，否则连不上`,
+    );
+  }
+
+  /** 供控制台面板展示当前生效的反向 token（用户要拿它去配 NapCat）。 */
+  get reverseTokenForPanel(): string {
+    return this.config.mode === 'reverse' ? this.config.token : '';
+  }
+
+  /**
    * 按**当前**配置新建 OneBot driver。连接类配置（模式/地址/端口/路径/Token）改了之后，
    * 靠 {@link restartConnection} 重建 driver 即可生效，不必整进程重启。
    * 注意 config 是 ctx.cfg 的同一引用（normalizeConfig 原地补全），这里读到的就是最新值。
    */
   private createDriver(): OneBotDriver {
+    // 建 driver 前先确保反向监听带鉴权（start 与 restartConnection 都走这里，不会漏）。
+    this.ensureReverseToken();
     return new OneBotDriver({
       mode: this.config.mode,
       wsUrl: this.config.wsUrl,
@@ -2257,7 +2297,7 @@ export class QQWorld implements World {
       tags: ['speak'],
       barrierAfter: true,
       description:
-        '在 QQ 空间发一条动态（说说）。内容按「最近聊天 + 你对人或事的真实看法」自己生成：可省略 content 让它自动按对话与记忆发挥（topic 给方向，如“吐槽最近的天气/介绍某人”）；也可直接给 content 发你写好的。可附图片（images：file://、http(s):// 或 base64:// 链接）与 @人（ats：昵称或 QQ 号）。permission 默认 1=公开。返回 tid 供后续删除/回复。',
+        '在 QQ 空间发一条动态（说说）。内容按「最近聊天 + 你对人或事的真实看法」自己生成：可省略 content 让它自动按对话与记忆发挥（topic 给方向，如“吐槽最近的天气/介绍某人”）；也可直接给 content 发你写好的。可附图片（images：仅支持 http(s):// 与 base64:// 链接，出于安全考虑不支持本机文件）与 @人（ats：昵称或 QQ 号）。permission 默认 1=公开。返回 tid 供后续删除/回复。',
       parameters: {
         type: 'object',
         properties: {
@@ -3087,7 +3127,7 @@ export class QQWorld implements World {
       id: m.id,
       title: m.title,
       description: m.description,
-      getMethods: ['config', ...(m.id === 'general' ? ['restartConnection'] : []), ...(m.status ? [m.status] : []), ...(m.extra === 'asr' ? ['downloadAsrModel'] : [])],
+      getMethods: ['config', ...(m.id === 'general' ? ['restartConnection', 'getReverseToken'] : []), ...(m.status ? [m.status] : []), ...(m.extra === 'asr' ? ['downloadAsrModel'] : [])],
     });
     // 面板顺序：连接与监听排第一（装完扩展第一件事就是配连接与监听），监听名单排第二，
     // 其余模块与「实时事件」保持原有相对顺序。
@@ -3296,6 +3336,8 @@ export class QQWorld implements World {
 
   private async invoke(panel: string, method: string, args: unknown[]): Promise<unknown> {
     if (method === 'restartConnection') return this.restartConnection();
+    // 反向连接自动生成的 token 要展示给用户（他得拿去填 NapCat），仅回显当前生效值。
+    if (method === 'getReverseToken') return this.reverseTokenForPanel;
     if (panel === 'roster' && method === 'getRoster') {
       const list = [...this.convs.values()].map((c) => ({
         address: c.address,

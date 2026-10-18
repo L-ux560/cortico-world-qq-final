@@ -48,10 +48,32 @@ export class OneBotDriver {
 
   async start(): Promise<void> {
     if (this.opts.mode === 'reverse') {
+      this.assertReverseListenerIsSafe();
       await this.startReverse();
     } else {
       await this.startForward();
     }
+  }
+
+  /**
+   * 反向监听的兜底安全闸：连进来的那一端能读全部下行消息、也能伪造入站事件。
+   * 对外监听（非回环地址）时若没有 token，直接拒绝启动——宁可起不来，
+   * 也不能默默开一个同网段任意机器都能接入的无鉴权端口。
+   * 回环监听允许无 token（仅本机可达），但 world 侧仍会自动生成 token。
+   */
+  private assertReverseListenerIsSafe(): void {
+    const { wsHost, token } = this.opts;
+    if (token) return;
+    const host = (wsHost || '').trim();
+    const loopback = host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '';
+    if (loopback) {
+      this.opts.log.warn('反向监听未设 token；当前仅监听回环地址，建议在配置里填一个以防同机其它进程接入');
+      return;
+    }
+    throw new Error(
+      `拒绝启动：反向监听地址 ${host} 对外可达但未配置鉴权 token。` +
+        '请在「连接与监听」里设置 OneBot Token，或把监听地址改回 127.0.0.1。',
+    );
   }
 
   private startReverse(): Promise<void> {
@@ -85,6 +107,17 @@ export class OneBotDriver {
       this.opts.log.warn('接入 Token 不匹配，拒绝连接', { url });
       socket.close(1008, 'invalid token');
       return;
+    }
+    // 顶替当前连接前先把旧的那条踢掉：否则同一时刻会有两条连接都能发下行消息/收上行事件，
+    // 攻击者只要抢先重连就能截获后续全部消息。原实现是直接覆盖 active。
+    if (this.active && this.active !== socket) {
+      this.opts.log.warn('新的反向连接接入，踢掉先前那条', { url });
+      try {
+        this.active.close(1008, 'replaced by a newer connection');
+      } catch {
+        /* 旧连接可能已断开，忽略 */
+      }
+      this.sockets.delete(this.active);
     }
     this.sockets.add(socket);
     this.active = socket;
