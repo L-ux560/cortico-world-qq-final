@@ -99,12 +99,38 @@ export class OneBotDriver {
     });
   }
 
-  private onClientConnect(socket: WS, req: { url?: string }): void {
+  /**
+   * 从握手请求里取出对端携带的 token。
+   *
+   * OneBot v11 的鉴权约定是**请求头** `Authorization: Bearer <token>`
+   * （框架内置的 qq world 也是这么发的，见 `src/worlds/qq/driver.ts`：
+   *  `headers: token ? { Authorization: \`Bearer ${token}\` } : undefined`），
+   * NapCat / Lagrange 等实现默认都走这一条。因此这里必须优先读请求头。
+   *
+   * 同时兼容 go-cqhttp 早期与部分实现的 query 传参（`?access_token=` / `?token=`），
+   * 因为反向监听的服务端地址是 NapCat 侧手填的，用法不统一。
+   */
+  private extractToken(req: { url?: string; headers?: Record<string, unknown> }): string {
+    const auth = req.headers?.authorization;
+    if (typeof auth === 'string') {
+      const m = /^Bearer\s+(.+)$/i.exec(auth.trim());
+      if (m) return m[1].trim();
+    }
+    // 少数实现用 X-Self-ID 之外的其它头，这里不猜，仅在有明确命名时读取
+    const alt = req.headers?.['access_token'];
+    if (typeof alt === 'string' && alt) return alt.trim();
+
     const url = req.url ?? '';
     const query = new URLSearchParams(url.split('?')[1] ?? '');
-    const token = query.get('access_token') ?? query.get('token') ?? '';
+    return query.get('access_token') ?? query.get('token') ?? '';
+  }
+
+  private onClientConnect(socket: WS, req: { url?: string; headers?: Record<string, unknown> }): void {
+    const url = req.url ?? '';
+    const token = this.extractToken(req);
     if (this.opts.token && token !== this.opts.token) {
-      this.opts.log.warn('接入 Token 不匹配，拒绝连接', { url });
+      // 只记「有没有带」而不回显实际值，避免日志泄露可用的凭据
+      this.opts.log.warn('接入 Token 不匹配，拒绝连接', { url, presented: Boolean(token) });
       socket.close(1008, 'invalid token');
       return;
     }

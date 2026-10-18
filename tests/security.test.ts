@@ -108,6 +108,36 @@ test('反向连接拒绝无鉴权的对外监听', async () => {
   assert.ok(src.includes('拒绝启动'), '无 token 且对外监听时应拒绝启动');
 });
 
+test('反向服务端必须接受 OneBot 标准的 Authorization: Bearer 头', async () => {
+  // 回归：早期实现只从 query 读 token（?access_token= / ?token=），
+  // 而 OneBot v11 的约定是请求头 Authorization: Bearer <token>
+  // （框架内置 qq world 也是这么发的，见 src/worlds/qq/driver.ts）。
+  // NapCat 默认走请求头 → 只读 query 会永远判为「Token 不匹配」，
+  // 表现为 NapCat 反复重连、桌宠一直「未连接」，且日志里看不出原因。
+  const fs = await import('node:fs');
+  const src = fs.readFileSync(new URL('../src/driver.ts', import.meta.url), 'utf8');
+
+  assert.ok(src.includes('extractToken'), '必须有统一的 extractToken');
+  assert.ok(
+    /authorization/i.test(src),
+    '必须读取 authorization 请求头（OneBot v11 标准鉴权方式）',
+  );
+  assert.ok(/Bearer/i.test(src), '必须解析 Bearer 前缀');
+
+  // query 方式仍需兼容（NapCat 侧手填地址，用法不统一）
+  assert.ok(src.includes('access_token'), '仍应兼容 ?access_token=');
+  assert.ok(src.includes("query.get('token')"), '仍应兼容 ?token=');
+});
+
+test('日志不回显实际 token 值', async () => {
+  const fs = await import('node:fs');
+  const src = fs.readFileSync(new URL('../src/driver.ts', import.meta.url), 'utf8');
+  assert.ok(
+    /presented:\s*Boolean\(token\)/.test(src),
+    '拒绝日志只应记录是否带了 token，不应回显其值',
+  );
+});
+
 test('反向连接自动生成并持久化 token', async () => {
   const fs = await import('node:fs');
   const src = fs.readFileSync(new URL('../src/world.ts', import.meta.url), 'utf8');

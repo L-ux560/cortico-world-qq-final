@@ -4,6 +4,14 @@
 
 规则：每版本一个二级标题，标题里的第一个版本号即为本节版本。
 
+## 0.3.3
+
+修复 0.3.0 引入鉴权后 NapCat 完全连不上的问题（用户实测反馈）。
+
+- **反向服务端现在按 OneBot v11 标准校验 `Authorization: Bearer <token>` 请求头**。此前只从 query 读 `?access_token=` / `?token=`，而 NapCat / Lagrange 等实现默认把 token 放在 `Authorization` 头里（框架内置的 qq world 也是这么发的，见 `src/worlds/qq/driver.ts`），于是每一次接入都被判「Token 不匹配」——NapCat 反复重连、桌宠一直显示未连接，且日志看不出真正原因。
+- 仍然兼容 query 传参（`?access_token=` / `?token=`），因为反向监听地址是 NapCat 侧手填的，用法不统一。
+- 拒绝日志改为只记录 `presented: boolean`，不再回显实际 token 值。
+
 ## 0.3.2
 
 修复 0.3.1 引入的两个问题（都是用户实际反馈的）：
