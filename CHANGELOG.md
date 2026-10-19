@@ -4,6 +4,10 @@
 
 规则：每版本一个二级标题，标题里的第一个版本号即为本节版本。
 
+## 0.5.1
+
+修复：0.5.0 拆分后，默认环境模板 `ENV_PROMPT.md` 仍残留 `{{qq.affinity}}` / `{{qq.emotion}}` 两节（已随拆分迁到 `cortico-bot-qq-persona`），而 `envPromptVars()` / `promptDocs.vars` 不再声明这两个变量，导致控制台「QQ 环境描述」编辑器对这两处报「未提供值」红字。本版删除模板中这两节，红字消除。运行时无需其他改动。
+
 ## 0.5.0
 
 拆分：情绪 / 好感度 / 外号三大内部状态迁移到独立 bot 人格扩展 **`cortico-bot-qq-persona`**（api=7）。qq-final 本体不再内嵌这些状态，功能经装该人格获得。

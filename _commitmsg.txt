@@ -1,0 +1,5 @@
+fix: 删除默认环境模板残留的 {{qq.affinity}}/{{qq.emotion}}（0.5.1）
+
+0.5.0 拆分时只清了 envPromptVars()/promptDocs.vars，漏了默认模板
+ENV_PROMPT.md 里的好感度/情绪两节，导致控制台「QQ 环境描述」编辑器
+对这两处报「未提供值」红字。本版删除两节并升 0.5.1。
