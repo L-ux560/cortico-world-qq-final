@@ -4,6 +4,37 @@
 
 规则：每版本一个二级标题，标题里的第一个版本号即为本节版本。
 
+## 0.4.0
+
+安全整改（响应认证评审 Pal-AI-Lab/cortico-extensions#104），四项均为**破坏性变更**，升级后需检查配置。
+
+### 密钥一律走框架 `ctx.secret()`，不再自行读部署文件
+
+- 删除 `resolveSecret` 里的目录扫描逻辑：不再从 `dataDir` 往上推算、读取部署 `config.json` 与 `providers/*/config.json`、也不再用自复制的正则解析各 provider 的 `.env`。这既绕开了框架「密钥按部署隔离、provider 密钥只交给 provider」的安全措施，自复制的正则还踩过「`NAME=` 留空会读到下一行」的坑（Cortico#268）——空值行会把下一个密钥整行当成 Bearer 发出去。
+- 密钥统一经 `WorldContext.secret(name)` 解析（读部署 `.env`，解析规则随框架修复）。涉及：辅助视觉、表情包标注、主动说话、动态生成、情绪感知、语音判定/合成/ASR 全部密钥。
+
+### 辅助 AI 任务改为纯配置驱动，不再跟随主模型密钥
+
+- 删除 `detectActiveProvider()` 与 `autoEndpoint`/`autoApiKey`/`autoModel` 三个缓存字段。曾经的「配置留空 = 自动跟随部署主模型」已移除：那需要自行读部署配置与 provider 目录，且存在「地址填了、密钥名留空时把主模型密钥发到用户所填地址」的隐患。
+- `resolveHelperModel()` 改为逐项检查：**模型地址 / 密钥名 / 模型名三项必填**，缺任一项返回失败并给出可操作的提示（写清缺哪项、密钥该写什么名字、值放哪），绝不借用别的密钥、绝不静默重试。
+- `vision` / `proactive` / `qzone` / `emotion` 四段的配置描述同步更新：密钥只写名字，值放在部署密钥库（`.env`）里由框架读取。
+- `emotion.enabled` 默认由 `true` 改为 `false`：情绪感知每条消息都会额外调一次模型，与主模型的工作重复；真需要时填好三项再开。
+
+### 去掉与其他 World 的桥接（qq_note_*）
+
+- `notebook.ts` 删除经 `globalThis` 桥接 `cortico-world-memory` 的逻辑，只写本地 `dataDir/notebook.jsonl`。`qq_note_*` 与记忆扩展自带的 `mem_note`/`mem_notes`/`mem_forget_note` 功能重复，两个都装时模型应优先用后者（常驻环境提示词 + 混合检索）；工具描述里已写明。
+- 本扩展不 import、不探测、不调用任何其他 World。
+
+### 自有模型调用上报用量
+
+- `completeChat`（主动说话/动态/情绪）、辅助视觉 `describe`、表情包标注 `annotate` 三处自有模型调用，成功后经 `host.reportUsage()` 上报，用户可在控制台看到用量。
+
+### 其他
+
+- `qzone.ts` 删除未使用的 `resolveSecret` 选项。
+- `vision.enabled` 描述补充其与默认开启的「图片作为模型附件」的关系（两条看图的路，不建议同开）；README 同步说明。
+- README 修正多处与代码不一致：`wsHost`/`wsPath` 默认值、`token` 自动生成说明、`privateAggregationWindow` 默认 0、`emotion.enabled` 默认值、`qq_send` 发送语义、工具清单补齐 `qq_reminder_*` 三项、配置项全部对齐源码。
+
 ## 0.3.8
 
 修复 0.3.7 的自动探测路径层级错误。

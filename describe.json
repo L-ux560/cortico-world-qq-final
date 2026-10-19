@@ -518,7 +518,7 @@
     },
     {
       "name": "qq_note_save",
-      "description": "把你想长期记住的东西写进「私人笔记本」——任何你（智能体）想记的事：对某个人的观感、一条约定、一个灵感、用户叮嘱的偏好、自己立下的小目标等。记忆插件(cortico-world-memory)启用时，笔记会进它的记忆库并常驻进你的环境提示词；没启用时落到本地笔记本文件。text 填要记的内容（尽量具体、自包含，日后回看能懂）。",
+      "description": "把你想长期记住的东西写进「私人笔记本」——任何你（智能体）想记的事：对某个人的观感、一条约定、一个灵感、用户叮嘱的偏好、自己立下的小目标等。注意：若同时安装了 cortico-world-memory，请优先用它的 mem_note/mem_notes/mem_forget_note（常驻环境提示词 + 混合检索），本笔记本只落本地文件、不参与检索。text 填要记的内容（尽量具体、自包含，日后回看能懂）。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -541,7 +541,7 @@
     },
     {
       "name": "qq_note_list",
-      "description": "列出私人笔记本里的全部条目（记忆插件模式下为记忆库 qq 域；本地模式下为 notebook.jsonl）。用于回看你记过什么。",
+      "description": "列出私人笔记本里的全部条目（本地 notebook.jsonl）。用于回看你记过什么。",
       "parameters": {
         "type": "object",
         "properties": {},

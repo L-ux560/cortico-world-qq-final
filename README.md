@@ -46,17 +46,17 @@ Cortico 的 **QQ（OneBot v11 / NapCat）** World 扩展。以 `fat-fish` 仓库
 | `enabled` | `false` | 启用本 world |
 | `mode` | `reverse` | `reverse` / `forward` |
 | `wsUrl` | `ws://127.0.0.1:3001` | 正向模式地址 |
-| `wsHost` / `wsPort` / `wsPath` | `0.0.0.0` / `8080` / `/onebot/v11` | 反向模式监听 |
-| `token` | `""` | OneBot access_token（两端一致；空=不校验） |
+| `wsHost` / `wsPort` / `wsPath` | `127.0.0.1` / `8080` / `/onebot/v11/ws` | 反向模式监听。**默认只绑回环**：绑 `0.0.0.0` 会让同网段任何机器连上来伪造事件，且无 Token 时直接拒绝启动 |
+| `token` | `""` | OneBot access_token。反向模式留空时**自动生成随机 Token** 并持久化到 `dataDir/reverse-token.txt`（跨重启稳定），需把它填进协议端「设置反向客户端」；绝不退化成无鉴权监听 |
 | `groups` / `privates` | `[]` | 监听群号 / 私聊 QQ；`groups` 为空=接入全部群 |
-| `privateAggregationWindow` | `30000` | 私聊连续消息聚合窗口(ms) |
+| `privateAggregationWindow` | `0` | 私聊连续消息聚合窗口(ms)，0=不聚合 |
 | `maxMessageBytes` | `1500` | 长文本强制分片字节数 |
-| `deliverImageAttachments` | `true` | 图片作为模型附件（需模型支持图像） |
-| `vision.enabled` | `false` | 被动视觉描述图片（需配置 OPENROUTER_API_KEY） |
-| `vision.model` | `google/gemini-2.5-flash` | VLM 模型 |
+| `deliverImageAttachments` | `true` | 图片作为模型附件（需模型支持图像）。这是默认的看图路径 |
+| `vision.enabled` | `false` | 辅助视觉：用另一个 VLM 描述图片。主模型本身能看图时不必开（两条路会重复花钱） |
+| `vision.endpoint` / `vision.apiKeySecret` / `vision.model` | `""` | 开启辅助视觉后**三项必填**。密钥只写名字（如 `DEEPSEEK_API_KEY`），值放在部署密钥库（.env）里，由框架 `secret()` 读取 |
 | `qzone.enabled` | `false` | 启用 QQ 空间动态（说说）功能 |
 | `qzone.systemPrompt` | 中性占位（见下） | 发表/回评时的第一人称人设（默认中性占位，实际人设由部署级 ORIENTATION 决定） |
-| `qzone.endpoint` / `qzone.model` | OpenRouter / `google/gemini-2.5-flash` | 生成动态文案的 OpenAI 兼容端点 |
+| `qzone.endpoint` / `qzone.apiKeySecret` / `qzone.model` | `""` | 生成动态/评论的 OpenAI 兼容端点、密钥名（值在部署密钥库）、模型名。**开启自动动态或自动评论后三项必填**；`qq_qzone_post` 显式传 `content` 时不需要 |
 | `qzone.tickSec` / `qzone.chancePerTick` | `900` / `0.15` | 后台自动冒泡间隔(秒)与每次触发概率 |
 | `qzone.dailyQuota` | `5` | 每日自动发表上限 |
 | `qzone.permission` | `1` | 动态可见范围（0=公开/1=好友/...，取决于 NapCat） |
@@ -65,18 +65,20 @@ Cortico 的 **QQ（OneBot v11 / NapCat）** World 扩展。以 `fat-fish` 仓库
 | `qzone.autoReplyComments.chance` | `0.5` | 单条评论自动回复概率 |
 | `qzone.commentAction` | `send_qzone_comment` | 回评所用的 OneBot action 名（NapCat 可能为其它名，可改） |
 | `proactive.topicSimilarity` | `0.6` | 主动消息与近期已发内容的相似度上限（0~1，字符二元组 Jaccard）；超过则跳过，防同一话题反复换汤不换药。0=关闭 |
+| `proactive.endpoint` / `proactive.apiKeySecret` / `proactive.model` | `""` | 生成主动闲聊的 OpenAI 兼容端点、密钥名（值在部署密钥库）、模型名。**开启主动说话后三项必填** |
+| `proactive.dailyQuota` / `proactive.tokenLimit` | `20` / `2000` | 每日主动消息上限（0=不限）/ 单次生成 token 上限 |
 | `groupSpeak.enabled` | `true` | 群聊发言频率限制开关（含主动与回复） |
 | `groupSpeak.maxPerWindow` | `12` | 滑动窗口内每个群允许发出的消息上限 |
 | `groupSpeak.windowSec` | `60` | 限速滑动窗口长度（秒） |
 | `antiLoop.enabled` | `true` | 话题防死循环开关 |
 | `antiLoop.maxConsecutiveBotTurns` | `5` | 单会话内 bot 连续发言上限（对方发来任意消息即清零），超过则本次发言被拦截并提示收尾 |
 | `antiLoop.idleToEndSec` | `300` | 对方静默超过该秒数且 bot 已发过言，则自动收尾（0=关闭该规则） |
-| `emotion.enabled` | `true` | 是否启用情绪感知与注入（移植自 fat-fish emotion） |
+| `emotion.enabled` | `false` | 是否启用情绪感知与注入（移植自 fat-fish emotion）。**默认关闭**：开启后每条消息都会额外调一次模型，与主模型的工作重复 |
 | `emotion.decayHours` | `2.0` | 心情值自然回落到中性（0）的半衰期（小时），越小忘得越快 |
 | `emotion.labelMinutes` | `40` | 主导情绪标签冷却（分钟）；实际生效冷却为 `labelMinutes × 当前强度`，冷却期内不切换标签，避免来回横跳 |
-| `emotion.model` | `deepseek-chat` | 用于分析用户消息情绪、抽取心情变化（情绪/强度/起因）的 chat 模型（OpenAI 兼容端点） |
-| `emotion.endpoint` | `https://api.deepseek.com/v1` | 情绪感知所用 chat 端点 |
-| `emotion.apiKeySecret` | `DEEPSEEK_API_KEY` | 端点密钥的环境变量名 |
+| `emotion.model` | `""` | 用于分析用户消息情绪、抽取心情变化（情绪/强度/起因）的 chat 模型名（OpenAI 兼容）。开启情绪系统后必填 |
+| `emotion.endpoint` | `""` | 情绪感知所用 chat 端点。开启情绪系统后必填 |
+| `emotion.apiKeySecret` | `""` | 端点密钥名；值写在部署密钥库（.env）里，由框架 `secret()` 读取。开启情绪系统后必填 |
 | `routine.enabled` | `false` | **AI 作息**开关（默认关）。开启后 bot 按真实时间切换睡眠/午休/活跃三段 |
 | `routine.sleepStart` / `routine.sleepEnd` | `23:00` / `07:30` | 睡眠段起止（`HH:MM`，可跨午夜）。睡眠段内**自动暂停主动冒泡**（被动回复照常）|
 | `routine.lazyStart` / `routine.lazyEnd` | `12:00` / `14:00` | 午休段起止。该段内主动说话节奏放缓（更短更随意）|
@@ -91,10 +93,10 @@ Cortico 的 **QQ（OneBot v11 / NapCat）** World 扩展。以 `fat-fish` 仓库
 | `voice.semanticJudge` | `true` | 是否用 LLM 判断"这条回复要不要念出来"，避免每条都念 |
 | `voice.audioFallback` | `true` | 当语音合成失败（如本地模型崩溃/超时）时，是否回退为纯文字发送，而不是吞掉这条回复 |
 | `voice.judgeEndpoint` | `https://api.deepseek.com/v1` | 语义判定所用 OpenAI 兼容 chat 端点（**不绑定任何模型商**，可填你自己的） |
-| `voice.judgeApiKeySecret` | `DEEPSEEK_API_KEY` | 语义判定端点密钥的环境变量名 |
+| `voice.judgeApiKeySecret` | `DEEPSEEK_API_KEY` | 语义判定端点密钥名；值写在部署密钥库（.env）里，由框架 `secret()` 读取 |
 | `voice.judgeModel` | `deepseek-chat` | 语义判定所用 chat 模型名 |
 | `voice.voiceBaseUrl` | `""` | 选 `custom` / `local` 时必填：OpenAI 兼容音频端点基址（远程如 `https://open.bigmodel.cn/api/paas/v4` 或 `https://api.openai.com/v1`；本地如 `http://localhost:8000/v1`）。ASR 走 `{网址}/audio/transcriptions`，TTS 走 `{网址}/audio/speech` |
-| `voice.voiceApiKeySecret` | `VOICE_API_KEY` | `custom` 供应商 API Key 所在的环境变量名；`local` 供应商免 Key，留空即可 |
+| `voice.voiceApiKeySecret` | `VOICE_API_KEY` | `custom` 供应商 API Key 名；值写在部署密钥库（.env）里，由框架 `secret()` 读取。`local` 供应商免 Key，留空即可 |
 | `voice.voiceVoice` | `""` | 音色（仅当所选语音模型支持时填写，如 `tongtong`）；留空用服务商默认 |
 | `voice.voiceAsrModel` | `whisper-1` | 语音识别模型名（OpenAI 兼容 `/audio/transcriptions`，GLM 用 `glm-asr-2512`） |
 | `voice.voiceTtsModel` | `tts-1` | 语音合成模型名（OpenAI 兼容 `/audio/speech`，GLM 用 `glm-tts`，VoxCPM2 一般为 `openbmb/VoxCPM2`） |
@@ -106,7 +108,7 @@ Cortico 的 **QQ（OneBot v11 / NapCat）** World 扩展。以 `fat-fish` 仓库
 | `asr.localVenv` | `""` | 本地推理所用Python 虚拟环境路径 |
 | `asr.localPort` | `8778` | 本地推理服务端口（仅 `local`） |
 | `asr.cloudUrl` | `""` | OpenAI 兼容 ASR 基址（`cloud` 必填），如 `http://127.0.0.1:8000/v1` |
-| `asr.cloudApiKeySecret` | `ASR_API_KEY` | 从环境变量名读取 API Key |
+| `asr.cloudApiKeySecret` | `ASR_API_KEY` | 云端 ASR 密钥名；值写在部署密钥库（.env）里，由框架 `secret()` 读取 |
 | `asr.cloudModel` | `glm-asr-2512` | 云端 ASR 模型名 |
 | `asr.ffmpegPath` | `""` | ffmpeg 可执行文件路径（用于把 SILK/AMR 解码成 WAV）。空=依次找 PATH 与仓库 `node_modules/ffmpeg-static`（win 用 `ffmpeg.exe`）；找不到则语音识别不可用 |
 | `asr.transcribeTimeout` | `60000` | 识别超时（毫秒）：单次 ffmpeg 解码 + 识别请求共用（1000~600000） |
@@ -247,10 +249,13 @@ interface VoiceProvider {
 
 ## 工具
 
-- `qq_send`：起草要发送的消息（群或私聊），返回草稿编号。**不会立即发送**。
+- `qq_send`：**发送一条消息**到当前会话（群或私聊）。默认立即发出；参数 `confirm=true` 时改为起草模式——内容先以「草稿」出现在回复里，等你下一轮说「确认/算了」再决定发不发。
 - `qq_confirm_send`：确认并真正发送草稿（带 `barrierAfter`，防止连续误发）。
 - `qq_recent`：查询某群/私聊最近消息。
 - `qq_search`：按关键词检索历史消息。
+- `qq_reminder_add`：添加一条到点提醒（`content` 内容、`when` 如 `20:30` 或 ` tomorrow 8:00` 或 ISO 时间、可填 `who` 给指定人）。到点自动发到对应会话，带优雅超时控制。
+- `qq_reminder_list`：列出当前待触发的提醒。
+- `qq_reminder_cancel`：取消一条提醒（`id` 或 `all=true` 取消全部）。
 - `qq_qzone_post`：发表 QQ 空间动态（说说）。支持 `content`（正文）、`topic`（话题）、`images`（图片数组）、`ats`（@ 的 QQ 号数组）、`permission`（可见范围）。正文由 LLM 依据对话与记忆以第一人称自动生成；`content` 留空时由人设驱动。
 - `qq_qzone_delete`：删除指定 `tid` 的动态。
 - `qq_qzone_reply`：回复某条动态的评论（`tid` + `comment_id` + `content`）。
@@ -272,8 +277,8 @@ interface VoiceProvider {
   - `qq_affinity_get`：查询某人当前好感度（`who` 规则同上）。
   - `qq_affinity_list`：按好感度从高到低列出所有人（qq / 昵称 / 分数 / 状态 / 上次原因）。
   - 当前用户好感度会以"关系备忘"形式自动注入对话上下文（受 `affinity.enabled` 控制），bot 据此调节语气分寸。
-- **智能体私人笔记本（notebook）**：让 AI 记录自己想记的东西，独立于聊天/记忆系统之外。
-  - `qq_note_save`：记一条笔记（`text` 必填）。记忆插件（`cortico-world-memory`）启用时写入其笔记库 `qq` scope（常驻环境提示词、可混合检索）；未启用时落到本插件 `dataDir/notebook.jsonl`（原生）。
+- **智能体私人笔记本（notebook）**：让 AI 记录自己想记的东西，独立于聊天/记忆系统之外。**只落本插件 `dataDir/notebook.jsonl`（本地后端）**。
+  - `qq_note_save`：记一条笔记（`text` 必填）。若同时安装了 `cortico-world-memory`，请优先用它的 `mem_note`/`mem_notes`/`mem_forget_note`（常驻环境提示词 + 混合检索）——两边功能重复，本笔记不参与检索。
   - `qq_note_list`：列出全部笔记，返回编号/条目 id 与内容。
   - `qq_note_get`：按 id 查看某条笔记完整内容。
   - `qq_note_forget`：按 id 删除一条笔记。
@@ -365,15 +370,9 @@ interface VoiceProvider {
 
 ## 与 cortico-world-memory 的关系（可选，非依赖）
 
-「智能体私人笔记本」（`qq_notebook_*` 工具）默认写入本扩展自己的 `dataDir/notebook.jsonl`，**开箱即用、不需要装任何东西**。
+「智能体私人笔记本」（`qq_note_*` 工具）只写入本扩展自己的 `dataDir/notebook.jsonl`，**开箱即用、不需要装任何东西**。
 
-若同时启用了 [`cortico-world-memory`](https://www.npmjs.com/package/cortico-world-memory)，笔记本会自动改写到它的 `qq` scope，从而享受该插件的常驻环境提示词与混合检索；插件停用后会自动回退到原生 JSONL。后端在**每次调用时惰性判定**，与两个 World 的启动顺序无关。
-
-说明几点：
-
-- **不是硬依赖**：本扩展不 import 该插件，也不要求它存在。缺了它，所有功能照常，只是没有检索增强。
-- **为什么不是事件流**：框架的 `World` 契约里只有主循环回调（`onTurnEnded` / `onEventsSettled` / `onBatchEnd` / `onIdle` 等），**没有 World 之间的发布/订阅通道**，无法把「写入另一个 World 的存储」表达成事件。因此采用最小能力协商：由被调用方在 `start()` 时登记一个只含 `save/list/get/forget` 四个纯数据方法的窄接口，调用方按需探测，取不到就用本地实现。
-- **耦合面很小**：接口不暴露对方内部状态；插件停止时键被删除，本扩展即刻回到原生后端。
+若同时安装了 [`cortico-world-memory`](https://www.npmjs.com/package/cortico-world-memory)，它的 `mem_note`/`mem_notes`/`mem_forget_note` 与本笔记本功能重复——模型应优先用前者（常驻环境提示词 + 混合检索）。两者数据互不相通，也没有任何耦合：本扩展不 import、不探测、不调用该插件（认证评审 #104 明确要求 World 之间不得直接调用）。
 
 ## 已知限制 / 与原版的差异
 
@@ -384,8 +383,8 @@ interface VoiceProvider {
 - 表情包图片通过 `[表情包:文件名]` 发送，文件需放在 `emojiDir` 配置目录（默认 `<扩展>/emoji`）；文件缺失则该标记被丢弃，不报错。
 - 中文表情名（如 `[旺柴]`/`[笑哭]`）按 fat-fish 的 `FACE_MAP` 映射到 face id；未知方括号文本原样保留。
 - 系统表情标记 `[表情22：白眼]` / `[表情22:白眼]`（数字为 QQ face id，支持全角/半角冒号与可选空格）会被解析成真正的 `face` 段发送。早期版本只认半角冒号，bot 照着入站的全角冒号写法输出时会变成"不存在的表情"文本，已于 0.1.8 修复。
-- 被动视觉默认关闭；开启需自备 OpenAI 兼容（如 OpenRouter）Key 与可访问的图片 URL。
+- 辅助视觉默认关闭。开启需自备一个 OpenAI 兼容 VLM 服务：在配置里填好 `vision.endpoint` / `vision.apiKeySecret` / `vision.model` 三项（密钥值放部署密钥库）。注意这与默认开启的「图片作为模型附件」是**两条看图的路**，同时开会重复花钱——主模型本身能看图时，关掉辅助视觉即可。
 - QQ 空间功能依赖 NapCat 的 `send_qzone_msg` / `delete_qzone_msg`；部分 NapCat 版本未暴露空间 API，开启后调用会失败（可在控制台看错误）。
 - 回评 action 名（默认 `send_qzone_comment`）按 NapCat 版本不同可能变化，失败请在控制台改 `qzone.commentAction`。
 - `qq_qzone_feeds` 拉取列表为 best-effort，取决于 NapCat 是否实现 `get_qzone_msg_list`；取不到时返回空。
-- 动态文案默认走 OpenRouter `google/gemini-2.5-flash` 生成，需配置对应 API Key；`content` 留空且未配 Key 时退化为简短占位文案。
+- 动态文案生成需在配置里填好 `qzone.endpoint` / `qzone.apiKeySecret` / `qzone.model` 三项（开启自动动态/自动评论后必填；`qq_qzone_post` 显式传 `content` 时不需要模型）；未配置时不会自动发动态，工具调用会返回明确提示。

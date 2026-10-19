@@ -24,24 +24,38 @@ export class Vision {
   private readonly seenFile: string;
   private saveTimer: ReturnType<typeof setTimeout> | undefined;
   /**
-   * 模型来源解析器，由 QQWorld 注入（复用它那套「留空=跟随主模型 + 密钥回退 providers/*.env」的逻辑）。
-   * 缺省时退回旧的直连行为，便于单独使用本类。
+   * 模型来源解析器，由 QQWorld 注入（三项配置经框架 ctx.secret() 解析密钥）。
+   * 未注入或配置不全时 describe 直接放弃，不再自行查 process.env。
    */
   private readonly resolveModel:
     | (() => { endpoint: string; apiKey: string; model: string } | null)
     | undefined;
+  /** 用量上报（宿主 WorldHost.reportUsage）。 */
+  private readonly reportUsage?: (usage: {
+    promptTokens: number;
+    completionTokens: number;
+    cacheHitTokens: number;
+    cacheMissTokens: number;
+  }, model: string) => void;
 
   constructor(
     cfg: QQWorldConfig['vision'],
     log: Logger,
     dataDir = '',
     resolveModel?: () => { endpoint: string; apiKey: string; model: string } | null,
+    reportUsage?: (usage: {
+      promptTokens: number;
+      completionTokens: number;
+      cacheHitTokens: number;
+      cacheMissTokens: number;
+    }, model: string) => void,
   ) {
     this.cfg = cfg;
     this.log = log.child('vision');
     this.dataDir = dataDir;
     this.seenFile = dataDir ? join(dataDir, 'vision-seen.json') : '';
     this.resolveModel = resolveModel;
+    this.reportUsage = reportUsage;
     this.loadSeen();
   }
 
@@ -165,25 +179,22 @@ export class Vision {
   }
 
   private async describe(bytes: Uint8Array): Promise<string | null> {
-    // 优先用注入的解析器（留空=跟随主模型，且密钥支持 providers/*.env 回退）；
-    // 未注入时退回「只查 process.env」的旧行为。
-    let endpoint = this.cfg.endpoint.replace(/\/$/, '');
-    let apiKey = this.cfg.apiKeySecret ? process.env[this.cfg.apiKeySecret] : undefined;
-    let model = this.cfg.model;
+    // 模型来源一律走注入的解析器（由 QQWorld 经框架 ctx.secret() 解析密钥）。
+    // 曾在这里直查 process.env，认证评审（#104）要求收敛到框架密钥读取器。
     const injected = this.resolveModel?.();
-    if (injected) {
-      endpoint = injected.endpoint;
-      apiKey = injected.apiKey;
-      model = injected.model;
+    if (!injected) {
+      this.log.warn('辅助视觉未配置模型（模型地址/密钥名/模型名需在配置里填齐）');
+      return null;
     }
+    const endpoint = injected.endpoint;
+    const apiKey = injected.apiKey;
+    const model = injected.model;
     if (!apiKey) {
-      this.log.warn('辅助视觉缺少 API Key', {
-        secret: this.cfg.apiKeySecret || '(未指定，将尝试跟随主模型)',
-      });
+      this.log.warn('辅助视觉缺少 API Key', { secret: this.cfg.apiKeySecret || '(未指定)' });
       return null;
     }
     if (!model) {
-      this.log.warn('辅助视觉未配置模型名，且主模型未声明模型', { endpoint });
+      this.log.warn('辅助视觉未配置模型名', { endpoint });
       return null;
     }
     const base64 = Buffer.from(bytes).toString('base64');
@@ -208,7 +219,17 @@ export class Vision {
         }),
       });
       if (!res.ok) return null;
-      const json = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+      const json = (await res.json()) as {
+        choices?: Array<{ message?: { content?: string } }>;
+        usage?: { prompt_tokens?: number; completion_tokens?: number };
+      };
+      // 自有模型调用上报用量（认证评审 #104 要求：控制台要能看到）。
+      this.reportUsage?.({
+        promptTokens: json.usage?.prompt_tokens ?? 0,
+        completionTokens: json.usage?.completion_tokens ?? 0,
+        cacheHitTokens: 0,
+        cacheMissTokens: 0,
+      }, model);
       const text = json.choices?.[0]?.message?.content?.trim();
       return text || null;
     } catch {

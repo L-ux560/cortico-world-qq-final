@@ -62,11 +62,34 @@ export class StickerStore {
   private inflight = 0;
   private readonly queue: Job[] = [];
   private saveTimer: ReturnType<typeof setTimeout> | undefined;
+  private readonly secret?: (name: string) => string;
+  private readonly reportUsage?: (usage: {
+    promptTokens: number;
+    completionTokens: number;
+    cacheHitTokens: number;
+    cacheMissTokens: number;
+  }, model: string) => void;
 
-  constructor(dir: string, vision: StickerVisionCfg, log: Logger, dataDir = '') {
+  constructor(
+    dir: string,
+    vision: StickerVisionCfg,
+    log: Logger,
+    dataDir = '',
+    /** 部署级密钥读取器（框架 WorldContext.secret）。不得自行扫 providers 下的 .env。 */
+    secret?: (name: string) => string,
+    /** 用量上报（宿主 WorldHost.reportUsage）。 */
+    reportUsage?: (usage: {
+      promptTokens: number;
+      completionTokens: number;
+      cacheHitTokens: number;
+      cacheMissTokens: number;
+    }, model: string) => void,
+  ) {
     this.dir = dir;
     this.vision = vision;
     this.log = log.child('sticker');
+    this.secret = secret;
+    this.reportUsage = reportUsage;
     this.indexFile = dataDir ? join(dataDir, 'sticker-index.json') : '';
     this.load();
     this.log.info(`StickerStore init indexFile=${this.indexFile} emojiDir=${this.dir} loaded=${this.meta.size}`);
@@ -162,9 +185,13 @@ export class StickerStore {
     }
   }
 
-  /** 用 VLM 结构化标注情感/用处；无 key 或失败时返回「未知」降级。 */
+  /** 用 VLM 结构化标注情感/用处；无 key 或失败时返回「未知」降级。
+   *  密钥经框架 WorldContext.secret() 解析（部署 .env），不再直查 process.env。 */
   private async annotate(bytes: Uint8Array): Promise<{ emotion: string; usage: string; tag: string }> {
-    const apiKey = process.env[this.vision.apiKeySecret];
+    let apiKey = '';
+    try {
+      apiKey = this.secret?.(this.vision.apiKeySecret)?.trim() || '';
+    } catch { /* 密钥解析失败按无 key 降级 */ }
     if (!apiKey) {
       this.log.warn('缺视觉 API Key，表情包情感标注降级为未知', { secret: this.vision.apiKeySecret });
       return { emotion: '未知', usage: '未知', tag: '' };
@@ -198,7 +225,16 @@ export class StickerStore {
         }),
       });
       if (!res.ok) return { emotion: '未知', usage: '未知', tag: '' };
-      const json = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+      const json = (await res.json()) as {
+        choices?: Array<{ message?: { content?: string } }>;
+        usage?: { prompt_tokens?: number; completion_tokens?: number };
+      };
+      this.reportUsage?.({
+        promptTokens: json.usage?.prompt_tokens ?? 0,
+        completionTokens: json.usage?.completion_tokens ?? 0,
+        cacheHitTokens: 0,
+        cacheMissTokens: 0,
+      }, this.vision.model);
       return this.parseAnn(json.choices?.[0]?.message?.content?.trim());
     } catch {
       return { emotion: '未知', usage: '未知', tag: '' };

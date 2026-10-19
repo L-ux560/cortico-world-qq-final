@@ -58,8 +58,6 @@ export interface QZonePosterOpts {
   getContext: () => string;
   /** 取一条最近的 QQ 图片 URL（http(s)://|base64://），供自动附图。 */
   getRecentImageUrl?: () => string | null;
-  /** 取 API Key。 */
-  resolveSecret: (name: string | undefined) => string | undefined;
   isPaused?: () => boolean;
   /** 把一条外部交互（如评论）推给 host（用于记忆沉淀/让 bot 看到）。 */
   pushEvent: (e: unknown) => Promise<unknown>;

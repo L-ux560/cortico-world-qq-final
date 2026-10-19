@@ -138,39 +138,46 @@ test('日志不回显实际 token 值', async () => {
   );
 });
 
-test('自动探测主模型的路径层级正确（部署配置与 providers 在不同层）', async () => {
-  // 回归：曾把两者都按「往上两级」算，导致
-  //   部署配置被找成 <DATA>/home/config.json（实际在 <DATA>/home/companion/config.json）
-  // 而探测失败、四个辅助 AI 任务全部报「未能自动确定要用的模型」。
-  // 正确层级：dataDir=<DATA>/home/companion/data → 上一级=companion（部署配置）→ 上两级=home（providers）。
+test('不得自行探测主模型 / 不得自行扫描 providers 下的 .env', async () => {
+  // 认证评审（#104）：密钥必须走框架 WorldContext.secret()（部署 .env，按部署隔离）。
+  // 曾经这里按目录层级读部署 config.json 与 providers/*/config.json 来「跟随主模型」，
+  // 既绕开框架安全措施，又有把主模型密钥发到用户所填地址的隐患；自复制的 .env 正则
+  // 还踩过「NAME= 留空读到下一行」的坑（Cortico#268）。这些一律不允许再出现。
+  const fs = await import('node:fs');
+  const src = fs.readFileSync(new URL('../src/world.ts', import.meta.url));
+
+  assert.ok(!src.includes('detectActiveProvider'), '不得再自行探测 activeProvider');
+  assert.ok(!src.includes('autoApiKey'), '不得缓存主模型密钥');
+  assert.ok(
+    !/dirname\(dirname\(this\.dataDir\)\)/.test(src),
+    '不得按目录层级推算部署配置/providers 路径',
+  );
+  assert.ok(
+    !/readFileSync\(envPath/.test(src) && !/readdirSync\(providersDir/.test(src),
+    '不得自行读取 providers/*/.env',
+  );
+  // 密钥解析必须收敛到注入的框架 secret() 读取器
+  assert.ok(
+    /this\.secretResolver\?\.\(n\)/.test(src),
+    '密钥必须经框架注入的 secretResolver（WorldContext.secret）',
+  );
+});
+
+test('辅助模型三项配置缺一不可（不再跟随主模型密钥）', async () => {
+  // 认证评审（#104）：辅助模型让用户填地址/模型名/密钥名，密钥用 ctx.secret() 读。
+  // 曾经的「任一项留空即从主模型取」已移除：缺配置必须明确失败，不能借用别的密钥。
   const fs = await import('node:fs');
   const src = fs.readFileSync(new URL('../src/world.ts', import.meta.url), 'utf8');
 
-  const i = src.indexOf('private detectActiveProvider');
-  assert.ok(i > 0, '必须存在 detectActiveProvider');
+  const i = src.indexOf('private resolveHelperModel');
+  assert.ok(i > 0, '必须存在 resolveHelperModel');
   const body = src.slice(i, src.indexOf('\n  }\n', i));
 
-  assert.ok(
-    /const companionDir = dirname\(this\.dataDir\)/.test(body),
-    '部署配置要用上一级（companionDir）',
-  );
-  assert.ok(
-    /const homeDir = dirname\(companionDir\)/.test(body),
-    'providers 目录要用上两级（homeDir）',
-  );
-  assert.ok(
-    /join\(companionDir, 'config\.json'\)/.test(body),
-    '部署配置路径应为 <companionDir>/config.json',
-  );
-  assert.ok(
-    /join\(homeDir, 'providers', name\)/.test(body),
-    'provider 目录应为 <homeDir>/providers/<name>',
-  );
-  // 反例：不能再出现「部署配置也用上两级」的写法
-  assert.ok(
-    !/join\(dirname\(dirname\(this\.dataDir\)\), 'config\.json'\)/.test(body),
-    '部署配置不应按上两级查找',
-  );
+  assert.ok(/const missing: string\[\] = \[\]/.test(body), '必须逐项检查缺失');
+  assert.ok(/if \(missing\.length\)/.test(body), '有缺失必须返回失败');
+  assert.ok(!/autoEndpoint/.test(body), '不得再回退到主模型地址');
+  assert.ok(!/autoApiKey/.test(body), '不得再回退到主模型密钥');
+  assert.ok(!/autoModel/.test(body), '不得再回退到主模型模型名');
 });
 
 test('反向连接自动生成并持久化 token', async () => {
@@ -202,4 +209,41 @@ test('toIds 只收正整数（回归：空串曾被解析成 [0]）', () => {
   assert.deepEqual(toIds('   '), []);
   assert.deepEqual(toIds([0]), []);
   assert.deepEqual(toIds('123,456'), [123, 456]);
+});
+
+test('笔记本不得经 globalThis 桥接调用其他 World', async () => {
+  // 认证评审（#104）：World 之间不得直接调用；qq_note_* 与 cortico-world-memory 的
+  // mem_note/mem_notes/mem_forget_note 重复，两个都装时模型直接用后者。
+  const fs = await import('node:fs');
+  const src = fs.readFileSync(new URL('../src/notebook.ts', import.meta.url), 'utf8');
+
+  assert.ok(!src.includes('globalThis'), '不得再经 globalThis 桥接其他 World');
+  assert.ok(!src.includes('cortico:memory:notebook'), '不得再引用记忆插件的桥接键');
+  assert.ok(!/import .*cortico-world-memory/.test(src), '不得 import 其他 World 包');
+  // 仍保留本地后端，功能不依赖任何其他扩展
+  assert.ok(src.includes('notebook.jsonl'), '本地笔记本后端应保留');
+});
+
+test('自有模型调用必须经 host.reportUsage 上报用量', async () => {
+  // 认证评审（#104）：保留自己的模型调用就要上报用量，用户才能在控制台看到。
+  const fs = await import('node:fs');
+  const world = fs.readFileSync(new URL('../src/world.ts', import.meta.url), 'utf8');
+  const vision = fs.readFileSync(new URL('../src/vision.ts', import.meta.url), 'utf8');
+  const sticker = fs.readFileSync(new URL('../src/sticker.ts', import.meta.url), 'utf8');
+
+  assert.ok(world.includes('this.host?.reportUsage('), 'chat 补全必须上报用量');
+  assert.ok(vision.includes('this.reportUsage?.('), '辅助视觉必须上报用量');
+  assert.ok(sticker.includes('this.reportUsage?.('), '表情包标注必须上报用量');
+});
+
+test('密钥解析不得直查 process.env（统一走框架 secret）', async () => {
+  // 认证评审（#104）：自行扫 providers/*/.env 绕开框架密钥隔离，一律禁止。
+  const fs = await import('node:fs');
+  for (const f of ['../src/world.ts', '../src/vision.ts', '../src/sticker.ts']) {
+    const src = fs.readFileSync(new URL(f, import.meta.url), 'utf8');
+    assert.ok(
+      !/process\.env\[this\./.test(src),
+      `${f} 不得再直查 process.env 取密钥`,
+    );
+  }
 });

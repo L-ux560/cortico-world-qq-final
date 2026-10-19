@@ -91,10 +91,6 @@ export class QQWorld implements World {
   private asrSidecar: ChildProcess | null = null;
   private host: WorldHost | null = null;
   private log: Logger = consoleLogger();
-  /** 部署当前启用的主模型（启动时探测），供辅助 AI 任务在配置留空时跟随。 */
-  private autoEndpoint?: string;
-  private autoApiKey?: string;
-  private autoModel?: string;
   private driver: OneBotDriver | null = null;
   private identity: QQIdentity | null = null;
   private readonly convs = new Map<string, Conv>();
@@ -141,7 +137,7 @@ export class QQWorld implements World {
   private reminderTimer: ReturnType<typeof setInterval> | undefined = undefined;
   /** 好感度（关系分）存储：每用户独立、可正可负、随互动浮动。 */
   private affinity: AffinityStore | null = null;
-  /** 智能体私人笔记本：记忆插件启用时路由到记忆库，否则落到本地 notebook.jsonl。 */
+  /** 智能体私人笔记本：只落本地 notebook.jsonl（不再桥接其他 World）。 */
   private notebook!: Notebook;
   /** key=QQ 号，value=上次注入上下文时记录的好感度；仅在数值变化/首次时重新注入，避免历史被刷屏。 */
   private affinityInjected = new Map<string, number>();
@@ -149,6 +145,8 @@ export class QQWorld implements World {
   private dedupSends = new Map<string, { norm: string; ts: number }>();
   /** 状态持久化目录（来自 ctx.dataDir），用于跨重启重建 knownMessages（防串台索引）。 */
   private dataDir = '';
+  /** 部署级密钥读取器（框架 WorldContext.secret）。未注入时所有密钥解析返回空串。 */
+  private secretResolver?: (name: string) => string;
   private stateFile = '';
   /** 外号→QQ 记忆（持久化到 dataDir/qqbot-aliases.json），解析 who 时优先查这里。 */
   private aliases = new Map<string, number>();
@@ -160,10 +158,21 @@ export class QQWorld implements World {
    */
   private msgChain: Promise<void> = Promise.resolve();
 
-  constructor(config?: Partial<QQWorldConfig>, packageDir?: string, dataDir = '') {
+  constructor(
+    config?: Partial<QQWorldConfig>,
+    packageDir?: string,
+    dataDir = '',
+    /**
+     * 部署级密钥读取器：框架 `WorldContext.secret(name)`（读部署 .env，按部署隔离、
+     * 解析规则随框架修复）。**不得自行按目录扫描 providers 下的 .env**——那会绕开框架的
+     * 安全措施，且复制的正则曾踩过「NAME= 留空读到下一行」的坑（Cortico#268）。
+     */
+    secret?: (name: string) => string,
+  ) {
     this.config = normalizeConfig((config ?? {}) as QQConfigSection);
     this.packageDir = packageDir ?? '';
     this.dataDir = dataDir;
+    this.secretResolver = secret;
     this.stateFile = dataDir ? join(dataDir, 'qqbot-known-messages.json') : '';
     this.emojiDirAbs = this.config.emojiDir
       ? isAbsolute(this.config.emojiDir)
@@ -302,13 +311,20 @@ export class QQWorld implements World {
     // 反向监听必须在**任何连接建立之前**就备好鉴权 token：挂在 createDriver 里不够，
     // 因为面板/工具在 start 之后、driver 建立之前也可能读到 token（那时会是空）。
     this.ensureReverseToken();
-    // 辅助 AI 任务（主动说话/动态/情绪/视觉）在配置留空时跟随部署主模型，故先探测一次。
-    this.detectActiveProvider();
     this.vision = new Vision(this.config.vision, this.log, this.dataDir, () => {
       const m = this.resolveHelperModel(this.config.vision, '辅助视觉');
       return m.ok ? { endpoint: m.endpoint, apiKey: m.apiKey, model: m.model } : null;
+    }, (usage, model) => {
+      this.host?.reportUsage(usage, { model, label: '辅助视觉' });
     });
-    this.stickers = new StickerStore(this.stickerDirAbs || this.emojiDirAbs || join(this.packageDir, 'emoji'), this.config.vision, this.log, this.dataDir);
+    this.stickers = new StickerStore(
+      this.stickerDirAbs || this.emojiDirAbs || join(this.packageDir, 'emoji'),
+      this.config.vision,
+      this.log,
+      this.dataDir,
+      (name) => this.resolveSecret(name) ?? '',
+      (usage, model) => this.host?.reportUsage(usage, { model, label: '表情包标注' }),
+    );
     this.syncConfigRoster();
     this.driver = this.createDriver();
     await this.driver.start();
@@ -323,7 +339,7 @@ export class QQWorld implements World {
     );
     // 好感度（关系分）存储：每用户独立、可正可负、随互动浮动。
     this.affinity = new AffinityStore(this.dataDir, this.log.child('affinity'));
-    // 智能体私人笔记本：记忆插件启用时路由到记忆库('qq' scope)，否则落到本地 notebook.jsonl。
+    // 智能体私人笔记本：只落本地 notebook.jsonl（World 间不直接调用，见 notebook.ts 注释）。
     this.notebook = new Notebook(this.dataDir, this.log.child('notebook'));
     // 外号记忆：外号→QQ 映射（持久化，跨重启保留）。
     this.aliasesFile = this.dataDir ? join(this.dataDir, 'qqbot-aliases.json') : '';
@@ -384,7 +400,6 @@ export class QQWorld implements World {
       chatCompletion: (messages) => this.qzoneCompletion(messages),
       getContext: () => this.qzoneContext(),
       getRecentImageUrl: () => this.recentImageUrl(),
-      resolveSecret: (name) => this.resolveSecret(name),
       isPaused: () => this.host?.isPaused?.() ?? false,
       pushEvent: (e) => this.host.pushEvent(e as never, { trigger: 'piggyback' }),
       identity: () => this.identity,
@@ -535,22 +550,24 @@ export class QQWorld implements World {
     return out;
   }
 
-  /** 解析密钥：优先取 process.env，否则回退到 deployments/providers 下各 provider 的 .env 文件（Cortico 不把 .env 注入 process.env）。 */
+  /**
+   * 解析密钥：走框架 `WorldContext.secret(name)`（部署 .env，按部署隔离，规则随框架修复）。
+   *
+   * 曾经这里自己按目录扫描 providers 目录下各 provider 的 .env，认证评审（#104）明确指出这绕开了框架的
+   * 安全措施：密钥按部署隔离、provider 的密钥只交给 provider；且自复制的正则踩过
+   * 「`NAME=` 留空会读到下一行」的坑（Cortico#268），空值行会把下一个密钥整行当成
+   * Bearer 发出去。现已全部收敛到框架读取器。
+   */
   private resolveSecret(name: string): string | undefined {
-    const fromEnv = process.env[name];
-    if (fromEnv) return fromEnv;
+    const n = (name || '').trim();
+    if (!n) return undefined;
     try {
-      const providersDir = join(dirname(dirname(this.dataDir)), 'providers');
-      if (existsSync(providersDir)) {
-        for (const dir of readdirSync(providersDir)) {
-          const envPath = join(providersDir, dir, '.env');
-          if (!existsSync(envPath)) continue;
-          const m = new RegExp(`^\\s*${name}\\s*=\\s*(.+?)\\s*$`, 'm').exec(readFileSync(envPath, 'utf8'));
-          if (m) return m[1].trim();
-        }
-      }
-    } catch { /* ignore */ }
-    return undefined;
+      const v = this.secretResolver?.(n);
+      return v && v.trim() ? v.trim() : undefined;
+    } catch (e) {
+      this.log?.warn?.('密钥解析失败', { secret: n, err: String(e) });
+      return undefined;
+    }
   }
 
   /** 把配置里的语音设置解析成运行时配置（已解析密钥）。 */
@@ -593,102 +610,42 @@ export class QQWorld implements World {
   /**
    * 解析「辅助 AI 任务」（主动说话 / QQ空间动态 / 情绪感知 / 辅助视觉）实际该调哪个模型。
    *
-   * 设计目标：**绝大多数用户零配置**。这四项任务原本各自写死 OpenRouter，
-   * 而用户装桌宠时配好的是自己的模型（比如 DeepSeek），于是装完一开主动说话就刷
-   * 「缺少 API Key」——默认值让人先失败一次，很不友好。
+   * **纯配置驱动**：三项（模型地址 / 密钥名 / 模型名）都要用户自己填，密钥经框架
+   * `ctx.secret()` 从部署 .env 读取。曾经的「留空 = 自动跟随主模型」已移除——
+   * 那需要自行读部署 config.json 与 providers 目录下的 .env，绕开了框架的密钥隔离，
+   * 且存在把主模型密钥发到用户所填地址的隐患（认证评审 #104 明确要求去掉）。
    *
-   * 现在的规则（每个字段独立判断，都留空才算自动）：
-   *   - `apiKeySecret` 非空 → 用它指定的密钥（找不到就报可操作的错，不再沉默重试）；
-   *   - `endpoint`     非空 → 用它指定的地址；
-   *   - `model`        非空 → 用它指定的模型名；
-   *   - 任一项留空 → 从部署**当前启用的主模型**（activeProvider）自动取。
-   *
-   * 自动取法：读 `config.json` 的 activeProvider，再读
-   * `providers/<name>/config.json` 的 `baseUrl` / `secret` / `spec.model`，
-   * 密钥交给既有的 {@link resolveSecret}（先进程环境变量，再各 provider 目录下的 .env）。
-   * 这样用户已经在「模型供应商」里配好的东西直接复用，不必为每个小功能再配一遍。
+   * 任一项缺失 → 返回 ok=false 并给出可操作的提示，绝不静默重试、绝不借用别的密钥。
    */
   private resolveHelperModel(cfg: { endpoint: string; apiKeySecret: string; model: string }, feature: string): ResolvedHelperModel {
-    const explicitSecret = cfg.apiKeySecret.trim();
-    const explicitEndpoint = cfg.endpoint.trim();
-    const explicitModel = cfg.model.trim();
+    const endpoint = cfg.endpoint.trim();
+    const secretName = cfg.apiKeySecret.trim();
+    const model = cfg.model.trim();
 
-    // 用户显式指定了密钥名：只认它，找不到就直接给出可操作的提示。
-    if (explicitSecret) {
-      const key = this.resolveSecret(explicitSecret);
-      if (!key) {
-        this.log?.warn?.(
-          `${feature}：找不到密钥 ${explicitSecret}。` +
-            `请在桌宠的 provider 目录下的 .env 里写入 ${explicitSecret}=<你的密钥>，` +
-            '或把该配置项的「密钥名」留空以自动跟随主模型。',
-          { feature, secret: explicitSecret },
-        );
-        return { ok: false };
-      }
-      return {
-        ok: true,
-        endpoint: explicitEndpoint || this.autoEndpoint || '',
-        apiKey: key,
-        model: explicitModel || this.autoModel || '',
-      };
+    const missing: string[] = [];
+    if (!endpoint) missing.push('模型地址');
+    if (!secretName) missing.push('密钥名');
+    if (!model) missing.push('模型名');
+    if (missing.length) {
+      this.log?.warn?.(
+        `${feature}：未配置${missing.join('、')}，本次跳过。` +
+          '请在本功能对应的三项里填入 OpenAI 兼容服务的信息；' +
+          '密钥只写名字（如 DEEPSEEK_API_KEY），值放在桌宠的密钥库（部署 .env）里。',
+        { feature },
+      );
+      return { ok: false };
     }
 
-    // 未指定密钥名 → 自动跟随主模型
-    if (this.autoEndpoint && this.autoApiKey) {
-      return {
-        ok: true,
-        endpoint: explicitEndpoint || this.autoEndpoint,
-        apiKey: this.autoApiKey,
-        model: explicitModel || this.autoModel || '',
-      };
+    const key = this.resolveSecret(secretName);
+    if (!key) {
+      this.log?.warn?.(
+        `${feature}：密钥库里找不到 ${secretName}。` +
+          `请在部署目录的 .env 里写入 ${secretName}=<你的密钥>（或改「密钥名」为已存在的名字）。`,
+        { feature, secret: secretName },
+      );
+      return { ok: false };
     }
-
-    // 自动探测也没成功：给出「下一步做什么」，而不是只报缺 key。
-    this.log?.warn?.(
-      `${feature}：未能自动确定要用的模型，且配置项里也没有指定。` +
-        '请任选一种：①在「模型供应商」里把一个可用供应商设为当前启用；' +
-        '②或在本功能的「模型地址 / 密钥名 / 模型名」三项里填入 OpenAI 兼容服务的信息。',
-      { feature },
-    );
-    return { ok: false };
-  }
-
-  /** 启动时探测部署当前启用的主模型，供 {@link resolveHelperModel} 兜底。 */
-  private detectActiveProvider(): void {
-    this.autoEndpoint = undefined;
-    this.autoApiKey = undefined;
-    this.autoModel = undefined;
-    try {
-      // dataDir = <DATA>/home/companion/data
-      //   上一级 = <DATA>/home/companion  → 部署配置 config.json 在这
-      //   上两级 = <DATA>/home              → 各 provider 目录在这
-      const companionDir = dirname(this.dataDir);
-      const homeDir = dirname(companionDir);
-      const deployCfgPath = join(companionDir, 'config.json');
-      if (!existsSync(deployCfgPath)) return;
-      const deployCfg = JSON.parse(readFileSync(deployCfgPath, 'utf8')) as { activeProvider?: string };
-      const name = deployCfg.activeProvider?.trim();
-      if (!name) return;
-      const providerDir = join(homeDir, 'providers', name);
-      const providerCfgPath = join(providerDir, 'config.json');
-      if (!existsSync(providerCfgPath)) return;
-      const p = JSON.parse(readFileSync(providerCfgPath, 'utf8')) as {
-        baseUrl?: string;
-        secret?: string;
-        spec?: { model?: string };
-      };
-      const endpoint = p.baseUrl?.trim();
-      const secret = p.secret?.trim();
-      if (!endpoint || !secret) return;
-      const apiKey = this.resolveSecret(secret);
-      if (!apiKey) return;
-      this.autoEndpoint = endpoint.replace(/\/+$/, '');
-      this.autoApiKey = apiKey;
-      this.autoModel = p.spec?.model?.trim() || '';
-      this.log?.info?.(`辅助 AI 任务将跟随主模型：${name}（${this.autoModel || '默认模型'} @ ${this.autoEndpoint}）`);
-    } catch (err) {
-      this.log?.debug?.('自动探测主模型失败，辅助 AI 任务将使用显式配置', { err: String(err) });
-    }
+    return { ok: true, endpoint: endpoint.replace(/\/+$/, ''), apiKey: key, model };
   }
 
   /** OpenAI 兼容 chat 补全（主动消息生成用），失败返回 null。
@@ -938,7 +895,7 @@ export class QQWorld implements World {
   }
 
   /** OpenAI 兼容 chat/completions 调用（供主动说话、动态生成、情绪感知复用）。
-   *  模型来源由 {@link resolveHelperModel} 决定：配置项留空即自动跟随部署主模型。 */
+   *  模型来源由 {@link resolveHelperModel} 决定：三项配置缺一不可，密钥走框架 secret()。 */
   private async completeChat(
     cfg: { endpoint: string; apiKeySecret: string; model: string },
     messages: ChatMsg[],
@@ -947,14 +904,6 @@ export class QQWorld implements World {
   ): Promise<string | null> {
     const m = this.resolveHelperModel(cfg, feature);
     if (!m.ok) return null;
-    if (!m.endpoint) {
-      this.log.warn(`${feature}：未配置模型地址，且无法自动跟随主模型`, { feature });
-      return null;
-    }
-    if (!m.model) {
-      this.log.warn(`${feature}：未配置模型名，且主模型未声明模型`, { feature, endpoint: m.endpoint });
-      return null;
-    }
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 30000);
     try {
@@ -968,7 +917,19 @@ export class QQWorld implements World {
         this.log.warn(`${feature}：模型返回非 200`, { status: res.status, model: m.model, endpoint: m.endpoint });
         return null;
       }
-      const json = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+      const json = (await res.json()) as {
+        choices?: Array<{ message?: { content?: string } }>;
+        usage?: { prompt_tokens?: number; completion_tokens?: number };
+      };
+      // 自有模型调用须上报用量，用户才能在控制台看到（认证评审 #104 要求）。
+      try {
+        this.host?.reportUsage({
+          promptTokens: json.usage?.prompt_tokens ?? 0,
+          completionTokens: json.usage?.completion_tokens ?? 0,
+          cacheHitTokens: 0,
+          cacheMissTokens: 0,
+        }, { model: m.model, label: feature });
+      } catch { /* 宿主未接入时静默跳过，不影响主流程 */ }
       const text = json.choices?.[0]?.message?.content?.trim();
       return text || null;
     } catch (e) {
@@ -2824,14 +2785,15 @@ export class QQWorld implements World {
       },
     };
 
-    // ---- 智能体私人笔记本（记忆插件启用时路由到记忆库，否则本地 notebook.jsonl）----
+    // ---- 智能体私人笔记本（本地 notebook.jsonl；与记忆扩展的 mem_note 功能重复）----
     const noteSave: ToolDef = {
       name: 'qq_note_save',
       tags: ['write'],
       description:
         '把你想长期记住的东西写进「私人笔记本」——任何你（智能体）想记的事：对某个人的观感、一条约定、一个灵感、' +
-        '用户叮嘱的偏好、自己立下的小目标等。记忆插件(cortico-world-memory)启用时，笔记会进它的记忆库并常驻进你的环境提示词；' +
-        '没启用时落到本地笔记本文件。text 填要记的内容（尽量具体、自包含，日后回看能懂）。',
+        '用户叮嘱的偏好、自己立下的小目标等。注意：若同时安装了 cortico-world-memory，请优先用它的 ' +
+        'mem_note/mem_notes/mem_forget_note（常驻环境提示词 + 混合检索），本笔记本只落本地文件、不参与检索。' +
+        'text 填要记的内容（尽量具体、自包含，日后回看能懂）。',
       parameters: {
         type: 'object',
         properties: { text: { type: 'string', description: '要记的内容' } },
@@ -2841,22 +2803,20 @@ export class QQWorld implements World {
         const text = typeof args.text === 'string' ? args.text.trim() : '';
         if (!text) return { error: 'text 不能为空' };
         const r = await this.notebook.save(text);
-        const where = r.backend === 'memory' ? '记忆插件(常驻环境提示词)' : '本地笔记本';
         const preview = text.length > 60 ? text.slice(0, 60) + '…' : text;
-        return { text: `已记到笔记本（${where}）：${preview}`, ok: true, id: r.id, backend: r.backend };
+        return { text: `已记到笔记本（本地）：${preview}`, ok: true, id: r.id, backend: r.backend };
       },
     };
     const noteList: ToolDef = {
       name: 'qq_note_list',
       tags: ['read'],
-      description: '列出私人笔记本里的全部条目（记忆插件模式下为记忆库 qq 域；本地模式下为 notebook.jsonl）。用于回看你记过什么。',
+      description: '列出私人笔记本里的全部条目（本地 notebook.jsonl）。用于回看你记过什么。',
       parameters: { type: 'object', properties: {}, required: [] },
       handler: async () => {
         const entries = await this.notebook.list();
         if (!entries.length) return { text: '笔记本还是空的，还没记过东西。', ok: true, count: 0, backend: this.notebook.backend, entries: [] };
         const lines = entries.map((e) => `${e.seq != null ? e.seq + '. ' : '- '}${e.text}`);
-        const where = this.notebook.backend === 'memory' ? '记忆插件(qq 域)' : '本地笔记本';
-        return { text: `笔记本（${where}）共 ${entries.length} 条：\n` + lines.join('\n'), ok: true, count: entries.length, backend: this.notebook.backend, entries: entries.map((e) => ({ id: e.id, text: e.text, ts: e.ts })) };
+        return { text: `笔记本（本地）共 ${entries.length} 条：\n` + lines.join('\n'), ok: true, count: entries.length, backend: this.notebook.backend, entries: entries.map((e) => ({ id: e.id, text: e.text, ts: e.ts })) };
       },
     };
     const noteGet: ToolDef = {

@@ -1,0 +1,42 @@
+Follow-up on #104 - all points from your second review are addressed in cortico-world-qq-final@0.4.0 (published and verified on the registry). The breaking parts are the secret handling and the helper-model defaults; migration is documented in the CHANGELOG. Point by point:
+
+## 1. Secrets now go through ctx.secret() - no more reading the deployment by hand
+
+- Deleted the whole directory-scanning path: no more deriving the deployment config from `dataDir`, no more reading `providers/*/config.json`, no more hand-copied regex over the per-provider `.env` files.
+- `QQWorld` now takes a resolver injected from `definition.create(ctx)` as `ctx.secret(name)`. Every secret in the package (vision, sticker annotation, proactive, qzone, emotion, voice judge/TTS/ASR) resolves through it. When the resolver is absent, secrets resolve to empty and the feature reports a clear error instead of falling back to `process.env`.
+- Both consequences you described were real and are gone by construction:
+  - the old regex is deleted, so the "empty `NAME=` swallows the next line" bug (Cortico#268) can no longer leak `DEEPSEEK_API_KEY=sk-...` into a Bearer header;
+  - with no auto-detection there is no path where a key from the main model is sent to a user-supplied endpoint.
+- `detectActiveProvider()` and the `autoEndpoint`/`autoApiKey`/`autoModel` fields are removed entirely.
+
+## 2. Helper models are now purely configuration-driven
+
+- `resolveHelperModel()` checks all three fields (endpoint / secret name / model). Any one missing returns `ok:false` with a message naming exactly what is missing and what to do ("write the name only, put the value in the deployment key store (.env), the framework reads it").
+- There is no longer any "follow the main model" behaviour, and no borrowing of another feature's key. `emotion.enabled` now defaults to `false` since it costs one extra model call per message; `vision.enabled` stays `false` and its description explains that "image as model attachment" is already the default way of seeing images.
+
+## 3. Splitting the package - plan, and what already happened in 0.4.0
+
+Done in 0.4.0:
+
+- `qq_note_*`: the `globalThis` bridge to `cortico-world-memory` is gone. The notebook is a local `notebook.jsonl` again, and the tool description plus README now tell the model to prefer `mem_note`/`mem_notes`/`mem_forget_note` when cortico-world-memory is installed. No import, no probe, no call into any other world - pinned by a test.
+
+Planned, as separate optional extensions under the `cortico-world-qq-*` naming, each with its own issue and release so failures can be triaged per package:
+
+- **Proactive speech / routine broadcasts / qzone auto-posting**: rewritten to be event-driven - the scheduler pushes an event (target conversation included) and the main model decides what to say; `qq_qzone_post` requires an explicit `content` written by the main model. The second-model path and its three config fields are removed from these flows.
+- **Emotion / affinity / aliases** (bot-internal state, `internal-state`): moved toward the Bot extension's Persona as you suggest. Before touching it I would like to agree on the hook with you - is there a planned Persona API I should target, or should this wait for one?
+- **Helper vision**: the default stays off; "image as model attachment" is the single seeing path. The independent VLM is kept only as an opt-in for main models that cannot see images, and the README says not to run both.
+- What stays in the QQ world itself: connection, send/receive, group management, and everything that must go through the OneBot connection.
+
+## 4. Usage reporting
+
+All three remaining first-party model calls (`completeChat` for proactive/qzone/emotion, vision `describe`, sticker `annotate`) now call `host.reportUsage(...)` on success, so they show up in the console.
+
+## 5. Beta channel closed for good
+
+`npm deprecate` had indeed not covered the versions published after it. All 9 remaining versions (`0.2.0-beta.13` through `0.2.0-beta.21`) are now deprecated - 33 of 33 versions total - each with a notice pointing to `cortico-world-qq-final`. No further beta releases will be published; the beta repo will be archived.
+
+## Verification on 0.4.0
+
+- `pnpm check:extension`: "Extension check passed.", `describe.json` regenerated (37 tools).
+- Tests: 29 passing. The security suite now pins the new rules: no directory-derived deployment paths, no `process.env[...]` secret reads, helper model requires all three fields, no globalThis bridge in the notebook, and all three model call sites report usage.
+- Type-check clean; README and CHANGELOG updated for every breaking change (ws defaults, token generation, `privateAggregationWindow`, emotion default, `qq_send` semantics, full 37-tool list).

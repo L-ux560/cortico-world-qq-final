@@ -304,8 +304,8 @@ export const QQ_DEFAULTS: QQWorldConfig = {
   sendIntervalMs: 600,
   vision: {
     enabled: false,
-    // 下面三个字段留空 = 自动跟随部署里已启用的主模型（读 activeProvider 的 baseUrl/密钥/模型名）。
-    // 只有想单独指定某个 OpenAI 兼容服务时才填。绝大多数用户不需要动这三项。
+    // 开启辅助视觉后这三项必填：密钥只写名字，值放密钥库（部署 .env），由框架 secret() 读。
+    // 主模型本身能看图时不必开本功能——图片已作为附件直达主模型。
     endpoint: '',
     apiKeySecret: '',
     model: '',
@@ -325,7 +325,7 @@ export const QQ_DEFAULTS: QQWorldConfig = {
       '你要主动找对方说话（不是回复，是主动冒泡）。' +
       '说点自然、轻松、像真人在摸鱼时随手发的闲聊：关心一下、抛个小话题、分享点碎碎念都行。' +
       '一两句就够，别太长别太正式，别用「请问/您好」这种客服腔，也别每条都问「在吗」。',
-    // 留空 = 自动跟随主模型；填了则用你指定的 OpenAI 兼容服务。
+    // 开启主动说话后这三项必填：密钥只写名字，值放密钥库（部署 .env）。
     endpoint: '',
     apiKeySecret: '',
     model: '',
@@ -347,6 +347,7 @@ export const QQ_DEFAULTS: QQWorldConfig = {
     enabled: false,
     systemPrompt:
       '你现在要以第一人称在 QQ 空间发一条动态（说说）。内容要像你自己真实的朋友圈碎碎念：可以对最近聊天里某件事、某个人发表你的真实看法、吐槽、安利或简介，也可以分享当下的心情。自然、有梗、带点小情绪，别太长（1-3 句最佳，最多不超 100 字）。不要写成回复、不要加「在吗」、不要客服腔，可带少量 emoji。',
+    // 开启自动动态/自动评论后这三项必填：密钥只写名字，值放密钥库（部署 .env）。
     endpoint: '',
     apiKeySecret: '',
     model: '',
@@ -375,8 +376,9 @@ export const QQ_DEFAULTS: QQWorldConfig = {
     idleToEndSec: 300,
   },
   emotion: {
-    enabled: true,
-    // 留空 = 自动跟随主模型（与 vision/proactive/qzone 一致）。
+    // 默认关闭：开启后每条消息都会额外调一次模型做情绪感知，与主模型的工作重复。
+    // 真要开，先填好下面三项（密钥名对应密钥库里的名字）。
+    enabled: false,
     endpoint: '',
     apiKeySecret: '',
     model: '',
@@ -490,15 +492,15 @@ export const QQ_CONFIG_GROUP: ConfigGroup = {
       'worlds.qqbot.token': { type: 'string', title: 'OneBot Token', 'x-hot': false, description: '【反向连接必填】桌宠启动时会自动生成一串随机 Token 并保存到 dataDir/reverse-token.txt（跨重启不变），就显示在下方输入框里。把它整串复制到协议端「设置反向客户端」的鉴权 Token，然后在协议端点「保存连接」，即可连上。仅当连接模式为 forward（正向）时，才改填协议端「设置正向服务器」里那个 Token。' },
       'worlds.qqbot.groups': { type: 'string', title: '监听群', 'x-hot': true, description: '监听的群号，用空格或逗号分隔；空=全部群。改完即时生效，不用重启。' },
       'worlds.qqbot.privates': { type: 'string', title: '监听私聊', 'x-hot': true, description: '监听的私聊对方 QQ 号，用空格或逗号分隔。改完即时生效，不用重启。' },
-      'worlds.qqbot.deliverImageAttachments': { type: 'boolean', title: '图片作为模型附件', 'x-hot': true },
+      'worlds.qqbot.deliverImageAttachments': { type: 'boolean', title: '图片作为模型附件', 'x-hot': true, description: '开启时把收到的图片直接作为附件喂给主模型（主模型需支持看图）。这是默认的看图路径；「辅助视觉」是另一条用独立 VLM 描述图片的路，两条同时开会重复花钱，主模型能看图时就留着这个、关掉辅助视觉。' },
       'worlds.qqbot.emojiDir': { type: 'string', title: '表情包目录', 'x-hot': false, description: '本地表情包图片目录（相对扩展或绝对路径），供发送 [表情包:文件名] 标记。' },
       'worlds.qqbot.splitReplyBySentence': { type: 'boolean', title: '按句拆分发送', 'x-hot': true, description: '开启后回复按句标拆成多条消息（对齐 fat-fish）。' },
       'worlds.qqbot.sentencesPerMessage': { type: 'integer', title: '每条句数', minimum: 1, maximum: 10, 'x-hot': true },
       'worlds.qqbot.sendIntervalMs': { type: 'integer', title: '发送间隔(ms)', minimum: 0, maximum: 5000, 'x-hot': true, description: '逐条发送之间的间隔，0 表示不限速。' },
-      'worlds.qqbot.vision.enabled': { type: 'boolean', title: '开启辅助视觉', 'x-hot': false },
-            'worlds.qqbot.vision.endpoint': { type: 'string', title: '辅助视觉·模型地址', 'x-hot': false, description: 'VLM 的 OpenAI 兼容地址。留空 = 自动跟随「模型供应商」里当前启用的主模型（推荐，大多数人不用改）；填了则用你指定的 OpenAI 兼容服务。' },
-      'worlds.qqbot.vision.apiKeySecret': { type: 'string', title: '辅助视觉·密钥名', 'x-hot': false, description: '密钥的环境变量名（如 DEEPSEEK_API_KEY）。留空 = 自动跟随「模型供应商」里当前启用的主模型（推荐，大多数人不用改）；填了则用你指定的 OpenAI 兼容服务。' },
-'worlds.qqbot.vision.model': { type: 'string', title: 'VLM 模型', 'x-hot': false, description: '描述图片用的视觉模型名。留空 = 自动跟随「模型供应商」里当前启用的主模型（推荐）。' },
+      'worlds.qqbot.vision.enabled': { type: 'boolean', title: '开启辅助视觉', 'x-hot': false, description: '用另一个 VLM 描述图片。主模型本身能看图时不必开（图片已作为附件直达主模型，见「图片作为模型附件」）；仅当主模型不支持图片、或想用专门的视觉模型时才开。' },
+            'worlds.qqbot.vision.endpoint': { type: 'string', title: '辅助视觉·模型地址', 'x-hot': false, description: 'VLM 的 OpenAI 兼容地址（如 https://api.deepseek.com/v1）。开启辅助视觉后必填。' },
+      'worlds.qqbot.vision.apiKeySecret': { type: 'string', title: '辅助视觉·密钥名', 'x-hot': false, description: '密钥在密钥库（部署 .env）里的名字，如 DEEPSEEK_API_KEY；值由框架 secret() 读取，不写在本插件里。开启辅助视觉后必填。' },
+'worlds.qqbot.vision.model': { type: 'string', title: 'VLM 模型', 'x-hot': false, description: '描述图片用的视觉模型名。开启辅助视觉后必填。' },
       'worlds.qqbot.sticker.enabled': { type: 'boolean', title: '自动收藏表情包', 'x-hot': false, description: '开启后自动下载消息里的表情包并标注情感/用处、内容去重。' },
       'worlds.qqbot.sticker.captureMode': {
         type: 'string',
@@ -515,14 +517,14 @@ export const QQ_CONFIG_GROUP: ConfigGroup = {
         'x-hot': true,
         description: 'private=仅私聊；group=仅群；both=都主动。',
       },
-            'worlds.qqbot.proactive.endpoint': { type: 'string', title: '主动说话·模型地址', 'x-hot': false, description: '生成主动闲聊的模型地址。留空 = 自动跟随「模型供应商」里当前启用的主模型（推荐，大多数人不用改）；填了则用你指定的 OpenAI 兼容服务。' },
-      'worlds.qqbot.proactive.apiKeySecret': { type: 'string', title: '主动说话·密钥名', 'x-hot': false, description: '生成主动闲聊的密钥环境变量名。留空 = 自动跟随「模型供应商」里当前启用的主模型（推荐，大多数人不用改）；填了则用你指定的 OpenAI 兼容服务。' },
-'worlds.qqbot.proactive.model': { type: 'string', title: '主动消息模型', 'x-hot': false, description: '生成主动闲聊用的模型名留空 = 自动跟随「模型供应商」里当前启用的主模型（推荐）。' },
+            'worlds.qqbot.proactive.endpoint': { type: 'string', title: '主动说话·模型地址', 'x-hot': false, description: '生成主动闲聊的模型地址（OpenAI 兼容）。开启主动说话后必填。' },
+      'worlds.qqbot.proactive.apiKeySecret': { type: 'string', title: '主动说话·密钥名', 'x-hot': false, description: '密钥在密钥库（部署 .env）里的名字；值由框架 secret() 读取。开启主动说话后必填。' },
+'worlds.qqbot.proactive.model': { type: 'string', title: '主动消息模型', 'x-hot': false, description: '生成主动闲聊用的模型名。开启主动说话后必填。' },
       'worlds.qqbot.proactive.dailyQuota': { type: 'integer', title: '每日上限', minimum: 0, maximum: 200, 'x-hot': true, description: '每日主动消息条数上限（0=不限）。' },
       'worlds.qqbot.qzone.enabled': { type: 'boolean', title: 'QQ空间动态', 'x-hot': false, description: '开启后可在 QQ 空间发动态、自动冒泡、回复评论。需重启生效。' },
-            'worlds.qqbot.qzone.endpoint': { type: 'string', title: '动态生成·模型地址', 'x-hot': false, description: '生成动态/评论的模型地址。留空 = 自动跟随「模型供应商」里当前启用的主模型（推荐，大多数人不用改）；填了则用你指定的 OpenAI 兼容服务。' },
-      'worlds.qqbot.qzone.apiKeySecret': { type: 'string', title: '动态生成·密钥名', 'x-hot': false, description: '生成动态的密钥环境变量名。留空 = 自动跟随「模型供应商」里当前启用的主模型（推荐，大多数人不用改）；填了则用你指定的 OpenAI 兼容服务。' },
-'worlds.qqbot.qzone.model': { type: 'string', title: '动态生成模型', 'x-hot': false, description: '生成动态/评论所用模型名留空 = 自动跟随「模型供应商」里当前启用的主模型（推荐）。' },
+            'worlds.qqbot.qzone.endpoint': { type: 'string', title: '动态生成·模型地址', 'x-hot': false, description: '生成动态/评论的模型地址（OpenAI 兼容）。开启自动动态或自动评论后必填。' },
+      'worlds.qqbot.qzone.apiKeySecret': { type: 'string', title: '动态生成·密钥名', 'x-hot': false, description: '密钥在密钥库（部署 .env）里的名字；值由框架 secret() 读取。开启自动动态或自动评论后必填。' },
+'worlds.qqbot.qzone.model': { type: 'string', title: '动态生成模型', 'x-hot': false, description: '生成动态/评论所用模型名。开启自动动态或自动评论后必填。' },
       'worlds.qqbot.qzone.dailyQuota': { type: 'integer', title: '每日自动动态上限', minimum: 0, maximum: 50, 'x-hot': true, description: '后台自动发动态的每日条数上限（0=不限）。' },
       'worlds.qqbot.qzone.permission': { type: 'integer', title: '动态可见权限', minimum: 0, maximum: 10, 'x-hot': true, description: 'ugc_right：1=公开（默认），其余值随 NapCat 版本。' },
       'worlds.qqbot.qzone.imageMode': { type: 'string', title: '自动附图', enum: ['none', 'recent'], 'x-hot': true, description: 'none=不附图；recent=自动附上最近一条 QQ 图片。' },
@@ -537,12 +539,12 @@ export const QQ_CONFIG_GROUP: ConfigGroup = {
       'worlds.qqbot.antiLoop.enabled': { type: 'boolean', title: '话题自动结束', 'x-hot': true, description: '开启后统计单会话 bot 连续发言次数与对方静默时长，超限自动收尾，避免话题死循环。' },
       'worlds.qqbot.antiLoop.maxConsecutiveBotTurns': { type: 'integer', title: '连续发言上限', minimum: 1, maximum: 50, 'x-hot': true, description: '单会话内 bot 连续发言达到该次数（对方发消息即清零），下次发言被拦截并提示收尾。' },
       'worlds.qqbot.antiLoop.idleToEndSec': { type: 'integer', title: '对方静默收尾(秒)', minimum: 0, maximum: 86400, 'x-hot': true, description: '对方静默超过该秒数且 bot 已发过言则自动收尾；0=关闭该规则。' },
-      'worlds.qqbot.emotion.enabled': { type: 'boolean', title: '情绪系统', 'x-hot': true, description: '开启后每轮对话感知情绪、把心情注入全局上下文，并支持 /心情 查询（移植自 fat-fish）。' },
+      'worlds.qqbot.emotion.enabled': { type: 'boolean', title: '情绪系统', 'x-hot': true, description: '开启后每轮对话感知情绪、把心情注入全局上下文，并支持 /心情 查询（移植自 fat-fish）。每条消息会额外调一次「情绪感知」模型，与主模型的工作重复，默认关闭。' },
       'worlds.qqbot.emotion.decayHours': { type: 'number', title: '心情衰减半衰期(小时)', minimum: 0.1, maximum: 48, 'x-hot': true, description: '心情值自然回落到中性（0）的半衰期，越小忘得越快。' },
       'worlds.qqbot.emotion.labelMinutes': { type: 'number', title: '主导情绪冷却(分)', minimum: 0, maximum: 120, 'x-hot': true, description: '冷却期内不切换到新的主导情绪标签，避免来回横跳。' },
-            'worlds.qqbot.emotion.endpoint': { type: 'string', title: '情绪感知·模型地址', 'x-hot': false, description: '分析情绪的模型地址。留空 = 自动跟随「模型供应商」里当前启用的主模型（推荐，大多数人不用改）；填了则用你指定的 OpenAI 兼容服务。' },
-      'worlds.qqbot.emotion.apiKeySecret': { type: 'string', title: '情绪感知·密钥名', 'x-hot': false, description: '分析情绪的密钥环境变量名。留空 = 自动跟随「模型供应商」里当前启用的主模型（推荐，大多数人不用改）；填了则用你指定的 OpenAI 兼容服务。' },
-'worlds.qqbot.emotion.model': { type: 'string', title: '情绪感知模型', 'x-hot': false, description: '分析情绪用的模型名留空 = 自动跟随「模型供应商」里当前启用的主模型（推荐）。' },
+            'worlds.qqbot.emotion.endpoint': { type: 'string', title: '情绪感知·模型地址', 'x-hot': false, description: '分析情绪的模型地址（OpenAI 兼容）。开启情绪系统后必填；每条消息会额外调一次该模型。' },
+      'worlds.qqbot.emotion.apiKeySecret': { type: 'string', title: '情绪感知·密钥名', 'x-hot': false, description: '密钥在密钥库（部署 .env）里的名字；值由框架 secret() 读取。开启情绪系统后必填。' },
+'worlds.qqbot.emotion.model': { type: 'string', title: '情绪感知模型', 'x-hot': false, description: '分析情绪用的模型名。开启情绪系统后必填。' },
       'worlds.qqbot.routine.enabled': { type: 'boolean', title: '作息功能', 'x-hot': true, description: '开启后按真实时间切换「睡眠/午休/活跃」状态：睡眠段暂停主动冒泡并到点播报，午休段仅在语气里体现。改完即时生效。' },
       'worlds.qqbot.routine.sleepStart': { type: 'string', title: '睡眠开始(HH:MM)', 'x-hot': true, description: '进入睡眠时段的时间（24h，可早于 sleepEnd 形成跨午夜，如 23:00）。睡眠段内不主动冒泡，但仍能被动回复。' },
       'worlds.qqbot.routine.sleepEnd': { type: 'string', title: '睡眠结束(HH:MM)', 'x-hot': true, description: '离开睡眠时段的时间（24h）。离开时主动说「醒来」播报文案。' },

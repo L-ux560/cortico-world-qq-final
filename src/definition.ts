@@ -231,7 +231,9 @@ export const definition: WorldDefinition<QQConfigSection> = {
     return [];
   },
   create(ctx) {
-    return new QQWorld(ctx.cfg, ctx.packageDir, ctx.dataDir);
+    // 密钥一律走框架 WorldContext.secret（部署 .env，按部署隔离）；
+    // 不得自行扫描 providers/*/.env（认证评审 #104）。
+    return new QQWorld(ctx.cfg, ctx.packageDir, ctx.dataDir, (name) => ctx.secret(name));
   },
   describe: {
     tools: describeTools(QQWorld.describeToolSpecs(), TOOL_SUMMARIES),
