@@ -22,9 +22,7 @@ import { type Conv, type OneBotMessage, type OneBotSegment, type QQIdentity, typ
 import { Vision } from './vision.ts';
 import { StickerStore } from './sticker.ts';
 import { ReminderStore, parseWhen, formatWhen } from './reminder.ts';
-import { AffinityStore, affinityLabel } from './affinity.ts';
-import { ProactiveSpeaker, type ProactiveTarget, type ChatMsg, routineSegment } from './proactive.ts';
-import { EmotionEngine } from './emotion.ts';
+import { ProactiveSpeaker, type ProactiveTarget, routineSegment } from './proactive.ts';
 import { makeHistoryTools } from './history-tools.ts';
 import { Notebook } from './notebook.ts';
 import { festivalText } from './festival.ts';
@@ -103,7 +101,6 @@ export class QQWorld implements World {
   private stickers: StickerStore | null = null;
   private proactive: ProactiveSpeaker | null = null;
   private qzone: QZonePoster | null = null;
-  private emotion: EmotionEngine | null = null;
   private connected = false;
   /** sendTo 因限速/防死循环而拦截时返回的字符串前缀，便于 qq_send 工具区分“已发送”与“被拦截”。 */
   private static readonly SEND_BLOCKED = '[send blocked] ';
@@ -135,12 +132,8 @@ export class QQWorld implements World {
   private reminders!: ReminderStore;
   /** 到点提醒检查定时器句柄。 */
   private reminderTimer: ReturnType<typeof setInterval> | undefined = undefined;
-  /** 好感度（关系分）存储：每用户独立、可正可负、随互动浮动。 */
-  private affinity: AffinityStore | null = null;
   /** 智能体私人笔记本：只落本地 notebook.jsonl（不再桥接其他 World）。 */
   private notebook!: Notebook;
-  /** key=QQ 号，value=上次注入上下文时记录的好感度；仅在数值变化/首次时重新注入，避免历史被刷屏。 */
-  private affinityInjected = new Map<string, number>();
   // 发送去重：记录同会话最近一次实际发出的归一化文本，6s 内完全相同则跳过（防“一句话回复两遍”）。
   private dedupSends = new Map<string, { norm: string; ts: number }>();
   /** 状态持久化目录（来自 ctx.dataDir），用于跨重启重建 knownMessages（防串台索引）。 */
@@ -148,9 +141,6 @@ export class QQWorld implements World {
   /** 部署级密钥读取器（框架 WorldContext.secret）。未注入时所有密钥解析返回空串。 */
   private secretResolver?: (name: string) => string;
   private stateFile = '';
-  /** 外号→QQ 记忆（持久化到 dataDir/qqbot-aliases.json），解析 who 时优先查这里。 */
-  private aliases = new Map<string, number>();
-  private aliasesFile = '';
   private stateSaveTimer: ReturnType<typeof setTimeout> | undefined = undefined;
   /**
    * 串行处理链（对齐内置 qq 的 msgChain）。所有消息/通知都接到这条 Promise 链上依次执行，
@@ -337,13 +327,8 @@ export class QQWorld implements World {
       () => void this.checkReminders().catch((e) => this.log.warn('提醒检查异常', { err: String(e) })),
       30_000,
     );
-    // 好感度（关系分）存储：每用户独立、可正可负、随互动浮动。
-    this.affinity = new AffinityStore(this.dataDir, this.log.child('affinity'));
     // 智能体私人笔记本：只落本地 notebook.jsonl（World 间不直接调用，见 notebook.ts 注释）。
     this.notebook = new Notebook(this.dataDir, this.log.child('notebook'));
-    // 外号记忆：外号→QQ 映射（持久化，跨重启保留）。
-    this.aliasesFile = this.dataDir ? join(this.dataDir, 'qqbot-aliases.json') : '';
-    this.loadAliases();
 
     // 本地 ASR 侧车作为「共享服务」预热：voice 收语音识别用同一个侧车，
     // 拉起条件只看 asr.mode==='local'（不再依赖 call.enabled）。异步预热，不阻塞启动。
@@ -352,37 +337,6 @@ export class QQWorld implements World {
         .then((url) => { if (url) this.log.info('[asr-sidecar] 共享侧车已就绪', { url }); })
         .catch((e) => this.log.warn('[asr-sidecar] 预热失败（首次使用时将重试）', { err: String(e) }));
     }
-  }
-
-  /** 装载外号→QQ 记忆（qqbot-aliases.json）。 */
-  private loadAliases(): void {
-    if (!this.aliasesFile || !existsSync(this.aliasesFile)) return;
-    try {
-      const raw = JSON.parse(readFileSync(this.aliasesFile, 'utf8'));
-      const map: Record<string, number> = raw?.aliases ?? {};
-      for (const [k, v] of Object.entries(map)) {
-        if (typeof k === 'string' && Number.isFinite(v)) this.aliases.set(k.toLowerCase(), Number(v));
-      }
-    } catch (e) {
-      this.log.warn('外号记忆装载失败', { err: String(e) });
-    }
-  }
-
-  /** 持久化外号→QQ 记忆。 */
-  private saveAliases(): void {
-    if (!this.aliasesFile) return;
-    try {
-      const obj: Record<string, number> = {};
-      for (const [k, v] of this.aliases) obj[k] = v;
-      writeFileSync(this.aliasesFile, JSON.stringify({ aliases: obj }, null, 2));
-    } catch (e) {
-      this.log.warn('外号记忆保存失败', { err: String(e) });
-    }
-  }
-
-  /** 查外号记忆：外号（小写）命中返回 QQ 号。 */
-  private resolveAlias(alias: string): number | undefined {
-    return this.aliases.get(String(alias ?? '').trim().toLowerCase());
   }
 
   /** 装配 QQ 空间动态发布器（发/删动态、按对话记忆自动冒泡、评论回复）。 */
@@ -525,14 +479,6 @@ export class QQWorld implements World {
       isPaused: () => this.host?.isPaused?.() ?? false,
       // 主动说话复用 Persona + 记忆，避免与正常对话割裂。
       systemPromptFor: (target) => this.proactiveSystemPrompt(target),
-    });
-    this.emotion = new EmotionEngine({
-      dataDir: this.dataDir,
-      decayHours: this.config.emotion.decayHours,
-      labelMinutes: this.config.emotion.labelMinutes,
-      log: this.log,
-      generate: (messages) => this.moodCompletion(messages),
-      enabled: this.config.emotion.enabled,
     });
     this.proactive.start();
   }
@@ -940,12 +886,6 @@ export class QQWorld implements World {
     }
   }
 
-  /** 情绪感知专用补全：低温、较长输出；失败返回 null（由 EmotionEngine 兜底跳过）。 */
-  private async moodCompletion(messages: ChatMsg[]): Promise<string | null> {
-    const cfg = this.config.emotion;
-    return this.completeChat(cfg, messages, { temperature: 0.2, maxTokens: 400 }, '情绪感知');
-  }
-
   async stop(): Promise<void> {
     for (const c of this.convs.values()) {
       if (c.aggregationTimer) {
@@ -962,10 +902,8 @@ export class QQWorld implements World {
     if (this.reminderTimer) clearInterval(this.reminderTimer);
     this.reminderTimer = undefined;
     this.reminders?.flush();
-    this.affinity?.flush();
     this.proactive?.stop();
     this.qzone?.stop();
-    this.emotion?.stop();
     if (this.driver) await this.driver.stop();
     this.driver = null;
     this.connected = false;
@@ -1138,10 +1076,6 @@ export class QQWorld implements World {
     for (const c of this.convs.values()) {
       if (c.kind !== 'private' || c.id === excludeId) continue;
       add(c.label);
-    }
-    for (const key of this.aliases.keys()) {
-      if (this.aliases.get(key) === excludeId) continue;
-      add(key);
     }
     return [...set].sort((a, b) => b.length - a.length);
   }
@@ -1365,48 +1299,6 @@ export class QQWorld implements World {
 
     let text = renderIncoming(segs, { timezone: this.config.timezone, selfId, replyText, replyRef });
     this.log.info('HANDLE_IN kind=' + conv.kind + ' text=' + JSON.stringify(text).slice(0, 40));
-    // 情绪系统（移植自 fat-fish emotion）：感知 + /心情 命令/查询
-    if (text && this.emotion) {
-      const trimmed = text.trim();
-      const isMoodCmd = /^[/／]心情/.test(trimmed);
-      if (isMoodCmd) {
-        // 命令：开 / 关 / 状态 / 重置 / 默认查询
-        let sysText: string | null = null;
-        if (/^[/／]心情\s*(开|开启|启动|on|enable|启用)/i.test(trimmed)) {
-          this.emotion.setEnabled(true);
-          sysText = '【系统提示】用户让你开启情绪感知。请自然回应"已开启"，并简短说明现在能感知心情了。';
-        } else if (/^[/／]心情\s*(关|关闭|off|disable|停用)/i.test(trimmed)) {
-          this.emotion.setEnabled(false);
-          sysText = '【系统提示】用户让你关闭情绪感知。请自然回应"已关闭"，说明之后不再带情绪语气了。';
-        } else if (/状态|status/i.test(trimmed)) {
-          sysText = '【系统提示】用户问情绪模块开关状态，据实回答（不要编造）：情绪感知当前'
-            + (this.emotion.isEnabled() ? '已开启。' : '已关闭。');
-        } else if (/重置|reset/i.test(trimmed)) {
-          this.emotion.reset();
-          sysText = '【系统提示】用户让你重置心情，请自然回应：心情已重置回平静。';
-        } else {
-          // 纯 /心情：回答当前心情
-          sysText = '【系统提示】用户问你心情如何，请如实、自然地回答，不要编造：\n' + this.emotion.describe();
-        }
-        try {
-          void host.pushEvent({ type: 'system', ts: eventTs(this.config.timezone), source: SOURCE, text: sysText });
-        } catch { /* ignore */ }
-      } else if (this.emotion.isEnabled()) {
-        // 普通发言且情绪开启：自然语言问心情 → 回答；否则 → 感知
-        if (this.emotion.isQuery(text)) {
-          try {
-            void host.pushEvent({
-              type: 'system',
-              ts: eventTs(this.config.timezone),
-              source: SOURCE,
-              text: '【系统提示】用户问你心情如何，请如实、自然地回答，不要编造：\n' + this.emotion.describe(),
-            });
-          } catch { /* ignore */ }
-        } else {
-          void this.emotion.perceive(text, sender.name).catch((e) => this.log.warn('情绪感知失败 ' + String(e)));
-        }
-      }
-    }
     // 合并转发：异步展开内容作为补充事件（不阻塞主消息投递，对齐内置 lookupForward）
     const fwdSeg = segs.find((s) => s.type === 'forward');
     if (fwdSeg) {
@@ -1514,38 +1406,6 @@ export class QQWorld implements World {
     // 任意一条历史消息（对齐内置 qq world 的 idTag 渲染）。在自己发消息时 qq_send 的返回里
     // 也会给 message_id，这里补上入站消息，使「引用消息」功能完整闭环。
     const idTag = ev.message_id != null ? `#${ev.message_id} ` : '';
-    // 好感度：在用户消息之前，把该用户当前好感度作为内部上下文注入。
-    // 仅在数值相对上次注入有变化、或首次遇到该用户时再注入，避免历史被同一行刷屏。
-    if (this.affinity && this.config.affinity.enabled && sender.userId) {
-      const key = String(sender.userId);
-      const e = this.affinity.get(key);
-      const score = e?.score ?? 0;
-      if (this.affinityInjected.get(key) !== score) {
-        this.affinityInjected.set(key, score);
-        const name = e?.name || sender.name || `QQ ${key}`;
-        const label = affinityLabel(score);
-        const tone = score >= 20
-          ? '高好感：可以更亲昵、放松、自然'
-          : score <= -10
-            ? '低/负好感：更客气、有分寸、保持距离，别硬凑'
-            : '中性：正常有礼貌地相处即可';
-        try {
-          await host.pushEvent({
-            type: 'qq.affinity',
-            ts: eventTs(this.config.timezone, new Date((ev.time ?? Date.now() / 1000) * 1000)),
-            source: SOURCE,
-            origin: 'internal',
-            text:
-              `（关系备忘｜${name} QQ ${key}：好感度 ${score}/100，${label}。${tone}。` +
-              `据此把握说话态度与分寸，但别生硬念数字、别刻意强调关系分。）`,
-            senderKey: conv.address,
-            meta: { conv: conv.address, role: 'system', affinity: score },
-          }, { trigger: 'piggyback' });
-        } catch (ie) {
-          this.log.warn('好感度注入失败 ' + String(ie));
-        }
-      }
-    }
     this.log.info('HANDLE_PUSH pre kind=' + conv.kind);
     // 记录“应当回复”的会话，供回合收束时兜底自动发送（模型若只输出文本未调 qq_send）。
     if (conv.kind === 'private' || atMe) this._pendingReplyConvs.add(conv.address);
@@ -1750,9 +1610,6 @@ export class QQWorld implements World {
     if (!raw) return null;
     if (/^\d{5,}$/.test(raw)) return Number(raw);
     if (groupId == null) return null;
-    // 外号记忆优先（外号不等于群昵称，避免被成员列表覆盖）
-    const byAlias = this.resolveAlias(raw);
-    if (byAlias) return byAlias;
     const idx = await this.ensureMemberIndex(groupId);
     return idx.get(raw.toLowerCase()) ?? null;
   }
@@ -2622,169 +2479,6 @@ export class QQWorld implements World {
         return ok ? { text: `已取消提醒 ${id}。`, ok: true, removed: id } : { error: `没找到 id=${id} 的提醒` };
       },
     };
-    const affinityAdjust: ToolDef = {
-      name: 'qq_affinity_adjust',
-      tags: ['speak'],
-      description:
-        '调整你对某个用户的好感度（关系分）。好感度是每个人独立的、可在正负间浮动的数字（范围 -100~100，初始 0=普通），' +
-        '做让人舒服/投缘的事就加，做让人反感/越界的事就减——不是只增不减。delta 为正数增加、负数减少（如 +5 / -10 / 20）。' +
-        'who 填对方 QQ 号（群聊里必须指定；私聊不填则默认对方）。reason 可选，记一笔这次加减的原因（会进好感度档案）。' +
-        '调整后好感度会随下一条该用户的消息自动注入对话上下文，影响你后续的态度与分寸。',
-      parameters: {
-        type: 'object',
-        properties: {
-          who: { type: 'string', description: '对方 QQ 号（纯数字字符串）。群聊必填；私聊可省略（默认当前私聊对象）。' },
-          delta: { type: 'number', description: '好感度变化量，正数加、负数减，如 5、-10、20' },
-          reason: { type: 'string', description: '可选，这次加减的原因（如“帮我解决了个问题”“阴阳怪气了我”）' },
-        },
-        required: ['delta'],
-      },
-      handler: async (args, ctx) => {
-        const delta = Number(args.delta);
-        if (!Number.isFinite(delta) || delta === 0) return { error: 'delta 必须是非零数字（正数加、负数减）' };
-        const who = typeof args.who === 'string' ? args.who.trim() : '';
-        const addr = ctx.role ?? '';
-        const gid = addr.startsWith('group:') ? Number(addr.slice('group:'.length)) : null;
-        let key: string | undefined;
-        if (who) {
-          const ru = await resolveUser(gid ?? 0, who);
-          if (ru.err) return { error: ru.err };
-          key = String(ru.uid);
-        } else if (addr.startsWith('private:')) {
-          key = addr.slice('private:'.length);
-        } else {
-          const fb = this.fallbackTarget(gid);
-          if (!fb) return { error: '群聊里调整好感度需指定 who（昵称/QQ/外号），或 @/引用要操作的人。' };
-          key = String(fb);
-        }
-        if (!key) return { error: '无法确定要对谁调整好感度。' };
-        const reason = typeof args.reason === 'string' ? args.reason.trim() : undefined;
-        const before = this.affinity?.get(key)?.score ?? 0;
-        const e = this.affinity?.adjust(key, delta, reason) ?? { score: before, name: key, updatedAt: 0 };
-        const label = affinityLabel(e.score);
-        try {
-          await this.host?.pushEvent({
-            type: 'qq.affinity',
-            ts: eventTs(this.config.timezone),
-            source: SOURCE,
-            origin: 'internal',
-            text:
-              `（关系更新｜QQ ${key}：好感度由 ${before} 变为 ${e.score}/100，${label}` +
-              `${reason ? `（原因：${reason}）` : ''}。据此把握后续态度与分寸。）`,
-            senderKey: ctx.role ?? '',
-            meta: { conv: ctx.role ?? '', role: 'system', affinity: e.score },
-          }, { trigger: 'piggyback' });
-        } catch (fe) {
-          this.log.warn('好感度回灌失败 ' + String(fe));
-        }
-        const summary = `好感度已更新：QQ ${key} 由 ${before} 变为 ${e.score}/100（${label}）${reason ? `（原因：${reason}）` : ''}`;
-        return { text: summary, ok: true, qq: key, before, delta, score: e.score, label, reason: reason ?? '' };
-      },
-    };
-    const affinityGet: ToolDef = {
-      name: 'qq_affinity_get',
-      tags: ['read'],
-      description: '查询某个用户当前的好感度（关系分）。who 填 QQ 号；省略则默认当前私聊对象（群聊需指定）。',
-      parameters: {
-        type: 'object',
-        properties: { who: { type: 'string', description: '对方 QQ 号；群聊必填，私聊可省略' } },
-        required: [],
-      },
-      handler: async (args, ctx) => {
-        const who = typeof args.who === 'string' ? args.who.trim() : '';
-        const addr = ctx.role ?? '';
-        const gid = addr.startsWith('group:') ? Number(addr.slice('group:'.length)) : null;
-        let key: string | undefined;
-        if (who) {
-          const ru = await resolveUser(gid ?? 0, who);
-          if (ru.err) return { error: ru.err };
-          key = String(ru.uid);
-        } else if (addr.startsWith('private:')) {
-          key = addr.slice('private:'.length);
-        } else {
-          const fb = this.fallbackTarget(gid);
-          if (!fb) return { error: '群聊里查询好感度需指定 who（昵称/QQ/外号），或 @/引用要查询的人。' };
-          key = String(fb);
-        }
-        const e = this.affinity?.get(key ?? '');
-        if (!e) return { text: `QQ ${key}：好感度 0/100（普通，还没有记录）。`, ok: true, qq: key, score: 0, label: affinityLabel(0), note: '还没有记录，视为普通（0）' };
-        const summary = `QQ ${key}（${e.name ?? ''}）：好感度 ${e.score}/100（${affinityLabel(e.score)}）${e.lastReason ? `；上次：${e.lastReason}` : ''}`;
-        return { text: summary, ok: true, qq: key, score: e.score, label: affinityLabel(e.score), name: e.name ?? '', note: e.note ?? '', lastReason: e.lastReason ?? '' };
-      },
-    };
-    const affinityList: ToolDef = {
-      name: 'qq_affinity_list',
-      tags: ['read'],
-      description: '列出你对所有用户的好感度（关系分），按从高到低排序；用于了解“谁跟我现在关系好/不好”。',
-      parameters: { type: 'object', properties: {}, required: [] },
-      handler: async () => {
-        const list = this.affinity?.list() ?? [];
-        if (!list.length) return { text: '还没有记录任何人的好感度（都视为普通 0）。', ok: true, count: 0, entries: [] };
-        const text = '好感度总览（高→低）：\n' + list.map((e) => `- QQ ${e.key}（${e.name ?? ''}）：${e.score}/100 ${affinityLabel(e.score)}`).join('\n');
-        return {
-          text,
-          ok: true,
-          count: list.length,
-          entries: list.map((e) => ({ qq: e.key, name: e.name ?? '', score: e.score, label: affinityLabel(e.score), lastReason: e.lastReason ?? '' })),
-        };
-      },
-    };
-
-    // ---- 外号记忆：外号（昵称之外的代称）→ QQ 号，解析 who 时优先查 ----
-    const aliasSet: ToolDef = {
-      name: 'qq_alias_set',
-      tags: ['write'],
-      description:
-        '记住一个「外号/代称 → QQ 号」的对应关系（长期记忆，跨重启保留）。之后用禁言、设头衔、戳一戳、好感度等工具时，who 直接填这个外号就能解析到对应的人。' +
-        'alias 填外号（如“阿强”“老板”），qq 填对方的 QQ 号。已存在同名外号会覆盖。',
-      parameters: {
-        type: 'object',
-        properties: {
-          alias: { type: 'string', description: '外号/代称，例如“阿强”“老板”“那个总发广告的”' },
-          qq: { type: 'string', description: '对应的真实 QQ 号（纯数字）' },
-        },
-        required: ['alias', 'qq'],
-      },
-      handler: async (args, ctx) => {
-        const alias = typeof args.alias === 'string' ? args.alias.trim() : '';
-        const qqRaw = typeof args.qq === 'string' ? args.qq.trim() : String(args.qq ?? '');
-        if (!alias) return { error: 'alias 不能为空' };
-        if (!/^\d{5,}$/.test(qqRaw)) return { error: 'qq 必须是纯数字 QQ 号（>=5 位）。' };
-        const qq = Number(qqRaw);
-        this.aliases.set(alias.toLowerCase(), qq);
-        this.saveAliases();
-        return { text: `已记住外号「${alias}」→ QQ ${qq}。`, ok: true, alias, qq };
-      },
-    };
-    const aliasForget: ToolDef = {
-      name: 'qq_alias_forget',
-      tags: ['write'],
-      description: '忘记一个外号对应关系（删除之前用 qq_alias_set 记的）。alias 填要删的外号。',
-      parameters: {
-        type: 'object',
-        properties: { alias: { type: 'string', description: '要忘记的外号/代称' } },
-        required: ['alias'],
-      },
-      handler: async (args, ctx) => {
-        const alias = typeof args.alias === 'string' ? args.alias.trim() : '';
-        if (!alias) return { error: 'alias 不能为空' };
-        const had = this.aliases.delete(alias.toLowerCase());
-        if (had) this.saveAliases();
-        return had ? { text: `已忘记外号「${alias}」。`, ok: true, alias, forgotten: true } : { text: `没有记过外号「${alias}」。`, ok: true, alias, forgotten: false };
-      },
-    };
-    const aliasList: ToolDef = {
-      name: 'qq_alias_list',
-      tags: ['read'],
-      description: '列出当前记住的所有外号→QQ 对应关系。',
-      parameters: { type: 'object', properties: {}, required: [] },
-      handler: async () => {
-        const entries = [...this.aliases.entries()].map(([alias, qq]) => ({ alias, qq }));
-        if (!entries.length) return { text: '还没有记过任何外号。', ok: true, count: 0, aliases: [] };
-        return { text: '外号记忆：\n' + entries.map((e) => `- ${e.alias} → QQ ${e.qq}`).join('\n'), ok: true, count: entries.length, aliases: entries };
-      },
-    };
-
     // ---- 智能体私人笔记本（本地 notebook.jsonl；与记忆扩展的 mem_note 功能重复）----
     const noteSave: ToolDef = {
       name: 'qq_note_save',
@@ -2937,10 +2631,8 @@ export class QQWorld implements World {
     /** 把昵称/QQ/外号解析成 userId（外号记忆优先，其次群内昵称），失败返回报错文本。 */
     const resolveUser = async (gid: number, who: unknown): Promise<{ uid: number; err?: string }> => {
       const s = typeof who === 'string' ? who.trim() : String(who ?? '');
-      if (!s) return { uid: 0, err: '目标用户不能为空（填昵称、QQ 号或外号）' };
+      if (!s) return { uid: 0, err: '目标用户不能为空（填昵称或 QQ 号）' };
       if (/^\d+$/.test(s)) return { uid: Number(s) };
-      const byAlias = this.resolveAlias(s);
-      if (byAlias) return { uid: byAlias };
       const uid = await this.resolveQQ(gid, s);
       if (!uid) return { uid: 0, err: `在群 ${gid} 里找不到叫「${s}」的成员（确认昵称、改用 QQ 号，或在记忆里记一下这个外号对应谁）` };
       return { uid };
@@ -3158,7 +2850,7 @@ export class QQWorld implements World {
       },
     };
 
-    const tools: ToolDef[] = [send, confirm, viewImage, stickerStats, proactiveStatus, proactiveTrigger, qzonePost, qzoneDelete, qzoneReply, qzoneFeeds, qzoneStatus, poke, reminderAdd, reminderList, reminderCancel, affinityAdjust, affinityGet, affinityList, aliasSet, aliasForget, aliasList, noteSave, noteList, noteGet, noteForget, adminRecall, adminAtAll, adminNotice, adminJoinList, adminJoinApprove, adminJoinReject, adminTitle, adminBan, adminBanAll, adminKick, ...makeHistoryTools({
+    const tools: ToolDef[] = [send, confirm, viewImage, stickerStats, proactiveStatus, proactiveTrigger, qzonePost, qzoneDelete, qzoneReply, qzoneFeeds, qzoneStatus, poke, reminderAdd, reminderList, reminderCancel, noteSave, noteList, noteGet, noteForget, adminRecall, adminAtAll, adminNotice, adminJoinList, adminJoinApprove, adminJoinReject, adminTitle, adminBan, adminBanAll, adminKick, ...makeHistoryTools({
       getHost: () => this.host,
       sourceId: SOURCE,
       timezone: this.config.timezone,
@@ -3201,10 +2893,8 @@ export class QQWorld implements World {
       { id: 'qzone', title: 'QQ空间', description: 'QQ 空间动态发布、自动冒泡与评论回复。', group: 'world:qqbot', prefix: 'worlds.qqbot.qzone.', topOnly: false },
       { id: 'group-speak', title: '群聊限速', description: '限制每个群在单位窗口内被 bot 发出的消息总量，防刷屏/死循环。', group: 'world:qqbot', prefix: 'worlds.qqbot.groupSpeak.', topOnly: false },
       { id: 'anti-loop', title: '防刷/话题结束', description: '统计单会话 bot 连续发言次数与对方静默时长，超限自动收尾。', group: 'world:qqbot', prefix: 'worlds.qqbot.antiLoop.', topOnly: false },
-      { id: 'emotion', title: '情绪系统', description: '每轮对话感知情绪、把心情注入全局上下文，支持 /心情 查询。', group: 'world:qqbot', prefix: 'worlds.qqbot.emotion.', topOnly: false },
       { id: 'routine', title: '作息功能', description: '按真实时间切换睡眠/午休/活跃状态，到点播报。', group: 'world:qqbot', prefix: 'worlds.qqbot.routine.', topOnly: false },
       { id: 'reminder', title: '到点提醒', description: '记下的定时提醒到点自动发到对应会话。', group: 'world:qqbot', prefix: 'worlds.qqbot.reminder.', topOnly: false },
-      { id: 'affinity', title: '好感度', description: '好感度系统：随互动增减并注入对话上下文。', group: 'world:qqbot', prefix: 'worlds.qqbot.affinity.', topOnly: false },
       { id: 'admin', title: '群管理员', description: '群管理员能力：撤回/@全体/通知/审核进群/头衔/禁言/踢人。', group: 'world:qqbot', prefix: 'worlds.qqbot.admin.', topOnly: false },
       { id: 'voice', title: '语音收发', description: '对方说话转文字、AI 回复转语音。可整体开关，运行时状态见上方。', group: 'world:qqbot-voice', prefix: '', topOnly: false, status: 'getVoiceState' },
       { id: 'asr', title: '语音模型', description: 'ASR 引擎与模型下载：sherpa-onnx int8 量化版约 228MB，省内存更快。', group: 'world:qqbot-asr', prefix: '', topOnly: false, status: 'getAsrModelState', extra: 'asr' },
@@ -3236,8 +2926,6 @@ export class QQWorld implements World {
         { label: '群限速', value: this.config.groupSpeak.enabled ? `开(${this.config.groupSpeak.maxPerWindow}/${this.config.groupSpeak.windowSec}s)` : '关', tone: this.config.groupSpeak.enabled ? 'on' : 'plain' },
         { label: '防死循环', value: this.config.antiLoop.enabled ? `开(≤${this.config.antiLoop.maxConsecutiveBotTurns})` : '关', tone: this.config.antiLoop.enabled ? 'on' : 'plain' },
         { label: '模式', value: this.config.mode === 'reverse' ? '反向' : '正向', tone: 'plain' },
-        { label: '情绪', value: this.emotion?.isEnabled() ? '开' : '关', tone: this.emotion?.isEnabled() ? 'on' : 'plain' },
-        { label: '好感度', value: this.affinity?.count() ?? 0, tone: this.config.affinity.enabled ? 'on' : 'plain' },
       ],
       panels,
       invoke: (panel, method, args) => {
@@ -3264,8 +2952,6 @@ export class QQWorld implements World {
             { name: 'qq.qzone', description: 'QQ 空间动态能力说明（是否开启、可用工具）。', multiline: true },
             { name: 'qq.groupSpeak', description: '群聊发言限速说明（是否开启、窗口与上限）。' },
             { name: 'qq.antiLoop', description: '话题防死循环规则说明（连续发言上限、静默收尾、何时该停）。' },
-            { name: 'qq.affinity', description: '好感度（关系分）系统说明：每用户独立、可正可负、随互动浮动，及可用工具；当前好感度会在对话时注入上下文影响态度。', multiline: true },
-            { name: 'qq.emotion', description: '当前情绪状态提示（心情值 + 主导情绪 + 行为引导），注入全局上下文。', multiline: true },
             { name: 'qq.routine', description: 'AI 作息说明（当前时段、是否在线/睡眠/午休，以及主动冒泡规则）。' },
           ],
         },
@@ -3494,9 +3180,6 @@ export class QQWorld implements World {
     const antiLoopLine = al.enabled
       ? `话题防死循环已开启：同一会话里你连续发言达到 ${al.maxConsecutiveBotTurns} 条（对方发来任意消息即清零），或对方静默超过 ${al.idleToEndSec}s 且你已经发过言，下一次发言会被自动拦截并提示「话题自动收尾」。请主动把握分寸：对方不接话、只回敷衍或已明显不想聊时，就该停，不要硬聊、不要反复抛同一话题制造死循环。`
       : '话题防死循环未开启。';
-    const affinityLine = this.affinity && this.config.affinity.enabled
-      ? '好感度（关系分）系统已开启：你对每个用户有一份独立的好感度，范围 -100~100，初始 0=普通，会随互动上下浮动（不是只增不减——让人舒服就加、让人反感/越界就减）。相关工具：qq_affinity_adjust 调整、qq_affinity_get 查询、qq_affinity_list 总览。你与该用户对话时，其当前好感度会自动作为「关系备忘」注入上下文，你要据此自然把握态度与分寸（高好感更亲昵放松，低/负好感更客气疏远、保持距离），但不要生硬念数字、不要刻意强调关系分。'
-      : '好感度系统未开启（开启后会对每位用户维护一份可正可负、随互动浮动的好感度，并注入当前对话上下文）。';
     const voice = this.config.voice;
     const voiceLine = voice?.enabled && voice?.tts
       ? '语音能力已开启：当对方明确要求语音（如「发条语音」「念一段」）时，你的回复会被系统转成一条语音消息发送（而非纯文字），语音里说的就是你写的那些话。你发出的语音就是你自己说的，务必记住那是你发的——不要把它误认成对方发来的消息，也不要因此以为自己没发出去。其余情况仍以文字发送。'
@@ -3511,8 +3194,6 @@ export class QQWorld implements World {
       'qq.qzone': qzoneLine,
       'qq.groupSpeak': groupSpeakLine,
       'qq.antiLoop': antiLoopLine,
-      'qq.affinity': affinityLine,
-      'qq.emotion': this.emotion?.isEnabled() ? this.emotion.buildHint() : '',
       'qq.routine': this.routineSegmentText(),
       'qq.voice': voiceLine,
     };

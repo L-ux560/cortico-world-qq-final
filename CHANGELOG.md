@@ -4,6 +4,15 @@
 
 规则：每版本一个二级标题，标题里的第一个版本号即为本节版本。
 
+## 0.5.0
+
+拆分：情绪 / 好感度 / 外号三大内部状态迁移到独立 bot 人格扩展 **`cortico-bot-qq-persona`**（api=7）。qq-final 本体不再内嵌这些状态，功能经装该人格获得。
+
+- 移除 `qq_affinity_adjust` / `qq_affinity_get` / `qq_affinity_list` / `qq_alias_set` / `qq_alias_forget` / `qq_alias_list` / `qq_mood` 七个工具及其背后的 `EmotionEngine` / `AffinityStore` / 外号存储。
+- 移除 world 侧「情绪系统」「好感度」配置项（`worlds.qqbot.emotion.*` / `worlds.qqbot.affinity.enabled`）、对应控制台面板与 prompt 占位符（`qq.affinity` / `qq.emotion`）。
+- 关系分与时间戳刷新改由人格扩展的 `onDelivery` 负责；`qq_send` / `qq_recent` 的「who」解析不再走本地外号，外号 → QQ 号映射改由人格扩展托管。
+- 配套：cortico-bot-qq-persona 0.1.0（新包）。
+
 ## 0.4.0
 
 安全整改（响应认证评审 Pal-AI-Lab/cortico-extensions#104），四项均为**破坏性变更**，升级后需检查配置。

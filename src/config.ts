@@ -134,21 +134,6 @@ export interface QQWorldConfig {
     /** 对方静默超过该秒数且 bot 已发过言，则自动收尾（0=关闭该规则）。 */
     idleToEndSec: number;
   };
-  /** 情绪系统：移植自 fat-fish qq_bot 的 emotion 模块，全局维护一份心情，注入上下文并支持 /心情 查询。 */
-  emotion: {
-    /** 是否启用情绪感知与注入。 */
-    enabled: boolean;
-    /** 情绪感知所用 chat 端点（OpenAI 兼容）。 */
-    endpoint: string;
-    /** 端点密钥的环境变量名。 */
-    apiKeySecret: string;
-    /** 感知模型。 */
-    model: string;
-    /** 心情自然衰减半衰期（小时），越小忘得越快。对齐 fat-fish EMOTION_DECAY_HOURS。 */
-    decayHours: number;
-    /** 主导情绪标签冷却（分钟）：冷却期内不切换到新标签，避免来回横跳。对齐 EMOTION_LABEL_MINUTES。 */
-    labelMinutes: number;
-  };
   /** 时区，用于时间戳与 env 提示。 */
   timezone: string;
   /** 作息功能：按真实时间切换「睡眠/午休/活跃」状态，睡眠段暂停主动冒泡并到点播报。 */
@@ -156,15 +141,6 @@ export interface QQWorldConfig {
   /** 闹钟 / 记事本：记录需要定时做的事或约定，到点自动提醒。 */
   reminder: {
     /** 是否启用“到点自动发提醒”。记录 / 查询 / 取消不受此开关影响（始终可用）。 */
-    enabled: boolean;
-  };
-  /** 好感度（关系分）系统：每位用户独立、可正可负、随互动上下浮动，注入上下文影响聊天态度。 */
-  affinity: {
-    /**
-     * 是否启用好感度系统。
-     * - 记录 / 查询 / 调整工具（qq_affinity_*）始终可用；
-     * - 此开关决定是否在「与该用户对话时把当前好感度自动注入上下文」，影响语气与分寸。
-     */
     enabled: boolean;
   };
   /** 自称（第一人称昵称）：用于主动说话调度器与作息状态文本。
@@ -375,16 +351,6 @@ export const QQ_DEFAULTS: QQWorldConfig = {
     maxConsecutiveBotTurns: 5,
     idleToEndSec: 300,
   },
-  emotion: {
-    // 默认关闭：开启后每条消息都会额外调一次模型做情绪感知，与主模型的工作重复。
-    // 真要开，先填好下面三项（密钥名对应密钥库里的名字）。
-    enabled: false,
-    endpoint: '',
-    apiKeySecret: '',
-    model: '',
-    decayHours: 2.0,
-    labelMinutes: 40,
-  },
   timezone: 'Asia/Shanghai',
   routine: {
     enabled: false,
@@ -397,9 +363,6 @@ export const QQ_DEFAULTS: QQWorldConfig = {
     greetLazy: '中午啦，我去扒口饭眯一眯，有事儿留言~',
   },
   reminder: {
-    enabled: true,
-  },
-  affinity: {
     enabled: true,
   },
   selfName: '',
@@ -539,12 +502,6 @@ export const QQ_CONFIG_GROUP: ConfigGroup = {
       'worlds.qqbot.antiLoop.enabled': { type: 'boolean', title: '话题自动结束', 'x-hot': true, description: '开启后统计单会话 bot 连续发言次数与对方静默时长，超限自动收尾，避免话题死循环。' },
       'worlds.qqbot.antiLoop.maxConsecutiveBotTurns': { type: 'integer', title: '连续发言上限', minimum: 1, maximum: 50, 'x-hot': true, description: '单会话内 bot 连续发言达到该次数（对方发消息即清零），下次发言被拦截并提示收尾。' },
       'worlds.qqbot.antiLoop.idleToEndSec': { type: 'integer', title: '对方静默收尾(秒)', minimum: 0, maximum: 86400, 'x-hot': true, description: '对方静默超过该秒数且 bot 已发过言则自动收尾；0=关闭该规则。' },
-      'worlds.qqbot.emotion.enabled': { type: 'boolean', title: '情绪系统', 'x-hot': true, description: '开启后每轮对话感知情绪、把心情注入全局上下文，并支持 /心情 查询（移植自 fat-fish）。每条消息会额外调一次「情绪感知」模型，与主模型的工作重复，默认关闭。' },
-      'worlds.qqbot.emotion.decayHours': { type: 'number', title: '心情衰减半衰期(小时)', minimum: 0.1, maximum: 48, 'x-hot': true, description: '心情值自然回落到中性（0）的半衰期，越小忘得越快。' },
-      'worlds.qqbot.emotion.labelMinutes': { type: 'number', title: '主导情绪冷却(分)', minimum: 0, maximum: 120, 'x-hot': true, description: '冷却期内不切换到新的主导情绪标签，避免来回横跳。' },
-            'worlds.qqbot.emotion.endpoint': { type: 'string', title: '情绪感知·模型地址', 'x-hot': false, description: '分析情绪的模型地址（OpenAI 兼容）。开启情绪系统后必填；每条消息会额外调一次该模型。' },
-      'worlds.qqbot.emotion.apiKeySecret': { type: 'string', title: '情绪感知·密钥名', 'x-hot': false, description: '密钥在密钥库（部署 .env）里的名字；值由框架 secret() 读取。开启情绪系统后必填。' },
-'worlds.qqbot.emotion.model': { type: 'string', title: '情绪感知模型', 'x-hot': false, description: '分析情绪用的模型名。开启情绪系统后必填。' },
       'worlds.qqbot.routine.enabled': { type: 'boolean', title: '作息功能', 'x-hot': true, description: '开启后按真实时间切换「睡眠/午休/活跃」状态：睡眠段暂停主动冒泡并到点播报，午休段仅在语气里体现。改完即时生效。' },
       'worlds.qqbot.routine.sleepStart': { type: 'string', title: '睡眠开始(HH:MM)', 'x-hot': true, description: '进入睡眠时段的时间（24h，可早于 sleepEnd 形成跨午夜，如 23:00）。睡眠段内不主动冒泡，但仍能被动回复。' },
       'worlds.qqbot.routine.sleepEnd': { type: 'string', title: '睡眠结束(HH:MM)', 'x-hot': true, description: '离开睡眠时段的时间（24h）。离开时主动说「醒来」播报文案。' },
@@ -554,7 +511,6 @@ export const QQ_CONFIG_GROUP: ConfigGroup = {
       'worlds.qqbot.routine.greetWake': { type: 'string', title: '醒来播报(兜底)', 'x-hot': true, description: '离开睡眠段的兜底文案：正常由 LLM 生成，失败才回退。空=无兜底。' },
       'worlds.qqbot.routine.greetLazy': { type: 'string', title: '午休播报(兜底)', 'x-hot': true, description: '进入午休段的兜底文案：正常由 LLM 生成，失败才回退。空=无兜底。' },
       'worlds.qqbot.reminder.enabled': { type: 'boolean', title: '到点提醒', 'x-hot': true, description: '开启后，记下的定时提醒会在到点时自动发到对应会话；记录/查询/取消不受此开关影响（始终可用）。' },
-  'worlds.qqbot.affinity.enabled': { type: 'boolean', title: '好感度系统', 'x-hot': true, description: '开启后，你对每个用户的好感度（-100~100，可正可负）会随互动增减，并在与该用户对话时自动注入上下文、影响你的态度与分寸。记录/查询/调整工具始终可用。' },
       'worlds.qqbot.admin.enabled': { type: 'boolean', title: '群管理员能力', 'x-hot': true, description: '开启后可在群里执行管理员操作：群撤回 / @全体成员 / 发群通知 / 审核进群 / 给予群头衔 / 禁言（及全员禁言）/ 踢出群聊。需要 bot 是群管理员或群主，否则 QQ 会拒绝。qq_admin_* 工具始终可用，关闭则提示“功能未开启”。' },
       'worlds.qqbot.admin.allowlist': { type: 'string', title: '授权指挥官(QQ号,逗号分隔)', 'x-hot': true, description: '白名单：这些 QQ 号的人可在对话里命令 bot 执行管理员操作（撤消息/禁言等），不受群身份限制。多个用逗号分隔，如 123456,654321。留空=不单独授权任何人。' },
       'worlds.qqbot.admin.allowGroupAdmins': { type: 'boolean', title: '允许群管/群主指挥', 'x-hot': true, description: '为 true 时，群里的管理员/群主在对话里发话即可指挥 bot 执行管理操作。设为 false 则只有白名单里的人能指挥。' },
@@ -768,16 +724,6 @@ export function normalizeConfig(raw: QQConfigSection): QQWorldConfig {
   if (typeof al.enabled !== 'boolean') al.enabled = true;
   if (typeof al.maxConsecutiveBotTurns !== 'number' || (al.maxConsecutiveBotTurns as number) < 1) al.maxConsecutiveBotTurns = QQ_DEFAULTS.antiLoop.maxConsecutiveBotTurns;
   if (typeof al.idleToEndSec !== 'number' || (al.idleToEndSec as number) < 0) al.idleToEndSec = QQ_DEFAULTS.antiLoop.idleToEndSec;
-  // emotion 子对象原地合并
-  c.emotion = c.emotion ?? {};
-  Object.assign(c.emotion, { ...QQ_DEFAULTS.emotion, ...(c.emotion as object) });
-  const em = c.emotion as Record<string, unknown>;
-  if (typeof em.enabled !== 'boolean') em.enabled = true;
-  if (typeof em.endpoint !== 'string' || !em.endpoint) em.endpoint = QQ_DEFAULTS.emotion.endpoint;
-  if (typeof em.apiKeySecret !== 'string' || !em.apiKeySecret) em.apiKeySecret = QQ_DEFAULTS.emotion.apiKeySecret;
-  if (typeof em.model !== 'string' || !em.model) em.model = QQ_DEFAULTS.emotion.model;
-  if (typeof em.decayHours !== 'number' || (em.decayHours as number) <= 0) em.decayHours = QQ_DEFAULTS.emotion.decayHours;
-  if (typeof em.labelMinutes !== 'number' || (em.labelMinutes as number) < 0) em.labelMinutes = QQ_DEFAULTS.emotion.labelMinutes;
   // routine 子对象原地合并
   c.routine = c.routine && typeof c.routine === 'object' ? c.routine : {};
   Object.assign(c.routine, { ...QQ_DEFAULTS.routine, ...(c.routine as object) });
@@ -795,11 +741,6 @@ export function normalizeConfig(raw: QQConfigSection): QQWorldConfig {
   Object.assign(c.reminder, { ...QQ_DEFAULTS.reminder, ...(c.reminder as object) });
   const rm = c.reminder as Record<string, unknown>;
   if (typeof rm.enabled !== 'boolean') rm.enabled = true;
-  // affinity 子对象原地合并
-  c.affinity = c.affinity && typeof c.affinity === 'object' ? c.affinity : {};
-  Object.assign(c.affinity, { ...QQ_DEFAULTS.affinity, ...(c.affinity as object) });
-  const af = c.affinity as Record<string, unknown>;
-  if (typeof af.enabled !== 'boolean') af.enabled = true;
   // voice 子对象原地合并
   c.voice = c.voice && typeof c.voice === 'object' ? c.voice : {};
   Object.assign(c.voice, { ...QQ_DEFAULTS.voice, ...(c.voice as object) });

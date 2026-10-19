@@ -66,30 +66,6 @@ const TOOL_SUMMARIES: Record<string, DescribeText> = {
     zh: '取消并删除一条提醒。',
     en: 'Cancel and delete a reminder.',
   },
-  qq_affinity_adjust: {
-    zh: '调整你对某个用户的好感度(关系分)。',
-    en: 'Adjust your affinity score toward one user.',
-  },
-  qq_affinity_get: {
-    zh: '查询某个用户当前的好感度。',
-    en: 'Read the current affinity score of one user.',
-  },
-  qq_affinity_list: {
-    zh: '列出你对所有用户的好感度,按高低排序。',
-    en: 'List your affinity toward every user, highest first.',
-  },
-  qq_alias_set: {
-    zh: '记住「外号 → QQ 号」对应关系,之后可直接用外号指代。',
-    en: 'Remember a nickname-to-QQ mapping so later tools accept the nickname.',
-  },
-  qq_alias_forget: {
-    zh: '忘记一个外号对应关系。',
-    en: 'Forget a stored nickname mapping.',
-  },
-  qq_alias_list: {
-    zh: '列出所有记住的外号与 QQ 号对应关系。',
-    en: 'List every stored nickname-to-QQ mapping.',
-  },
   qq_note_save: {
     zh: '把你长期想记住的事写进私人笔记本。',
     en: 'Write something you want to keep into your private notebook.',
@@ -176,13 +152,6 @@ const EVENTS: EventDescribe[] = [
     description: {
       zh: '系统提示:连接状态、或用运行时信息替换占位符后的说明文字。',
       en: 'A system notice: connection state, or text whose placeholders were filled at runtime.',
-    },
-  },
-  {
-    type: 'qq.affinity',
-    description: {
-      zh: '某个用户的好感度发生了变化。',
-      en: 'The affinity score of a user changed.',
     },
   },
   {
