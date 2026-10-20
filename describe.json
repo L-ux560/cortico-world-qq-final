@@ -1,6 +1,33 @@
 {
   "tools": [
     {
+      "name": "qq_forward_by_id",
+      "description": "按消息 id 合并转发（不伪造身份）：把本 bot 已经接收/发出过的多条消息，合成「一张合并转发卡片」发出到指定群/私聊。卡片由本 bot 发出（node 身份只能是 bot 自己），卡片内每条消息都标注原始发送者（昵称+QQ号）并保留原文内容（图片/引用等也在），绝不冒充任何人。\n用途：群聊/私聊里别人发了好几条消息，你想「挑几条合并成一张卡片转发出去」时调用本工具（正经的 QQ 合并转发，不是一条条发）。\n【限制，务必遵守】① 只能转发本 bot 在本会话里实际收到/发出过的消息，每条消息行首的 #编号 即其 message id，必须是本地记录内存在的编号，传入未见过/编造的编号会被拒绝（防止转发从未见过的消息）；② 合并卡片依赖 send_forward_msg（OneBot 合并转发），node 身份只能是 bot 自己，因此卡片里用「文本标注发送者」+ 保留原文来体现来源，绝不伪造他人身份；③ 需要协议端支持 send_forward_msg 与 get_msg（NapCat/Lagrange/SnowLuma 等 OneBot v11 实现大多支持，不支持会如实报错）；④ 本功能默认关闭，需先在设置里开启「允许按消息 id 原样转发」。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "to": {
+            "type": "string",
+            "description": "转发目标，原样复制事件 meta 里的 conv 字段。群聊填 \"group:<群号>\"，私聊填 \"private:<QQ号>\"。"
+          },
+          "message_ids": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "要合并转发的消息编号数组（即消息行首的 #编号，对应 QQ 真实 message_id）。每条必须在本会话本地记录内存在，否则该条被跳过并提示。多条会合成「一张」合并转发卡片。"
+          }
+        },
+        "required": [
+          "to",
+          "message_ids"
+        ]
+      },
+      "tags": [
+        "speak"
+      ]
+    },
+    {
       "name": "qq_send",
       "description": "回复 QQ 消息事件的唯一渠道：发送一条发往 QQ 群或私聊的消息（不要用 terminal_send，那只会发到控制台终端）。调用即直接发送，无需再确认。to 直接填事件 meta 里的 conv 字段：群聊为 \"group:<群号>\"，私聊为 \"private:<QQ号>\"。\n【私聊分流】当对话话题涉及隐私、秘密、尴尬、暧昧、个人账目/健康/情感等不宜在群内公开的内容时，应把回复改为私聊发给当事人，而非发在群里：先在群里说一句\"这个我私聊你～\"，再调用本工具 to=事件 meta 里的 senderPrivate 字段（形如 \"private:<QQ号>\"）把真正的内容私发过去。反之普通闲聊就直接发回当前群即可。",
       "parameters": {

@@ -112,6 +112,8 @@ export class QQWorld implements World {
   private botStreak = new Map<string, number>();
   /** 防死循环：会话地址 -> 最近一次收到对方发言的时间戳（用于 idle 收尾判断）。 */
   private lastUserMsgAt = new Map<string, number>();
+  /** 防死循环：QQ 号 -> 最近一次（任意会话，含其所在群）收到该用户发言的时间戳。私聊 idle 收尾改看全局活跃度，避免「人在群里活跃却私聊被永久收尾」的误伤。 */
+  private lastUserMsgAtByQQ = new Map<number, number>();
   private readonly eventSockets = new Set<WorldStreamSocket>();
   private packageDir = '';
   private emojiDirAbs = '';
@@ -1070,6 +1072,8 @@ export class QQWorld implements World {
     this.botStreak.set(conv.address, 0);
     this.lastUserMsgAt.set(conv.address, Date.now());
     const sender = this.resolveSender(ev, kind, id);
+    // 按 QQ 号记录全局最近发言时间（含群/私聊），供私聊 idle 收尾跨会话判断活跃度。
+    if (sender.userId != null) this.lastUserMsgAtByQQ.set(Number(sender.userId), Date.now());
     // 按 message_id 去重：NapCat reverse 偶发会把同一条消息事件重投两次，
     // 若直接 enqueue 会被处理两遍 → 同一消息回两遍。已在内存里出现过的消息直接丢弃。
     if (ev.message_id != null) {
@@ -1617,7 +1621,14 @@ export class QQWorld implements World {
     const al = this.config.antiLoop;
     if (!al.enabled) return null;
     const streak = this.botStreak.get(address) ?? 0;
-    const lastUser = this.lastUserMsgAt.get(address);
+    let lastUser = this.lastUserMsgAt.get(address);
+    // 私聊 idle 收尾改看该用户（QQ 号）的全局活跃度：人在群里活跃也应视为“未失联”，
+    // 否则会出现「私聊沉默但一直群里说话」仍被永久收尾拦住私聊的误伤。
+    if (address.startsWith('private:')) {
+      const qq = Number(address.slice('private:'.length));
+      const lastByQQ = Number.isFinite(qq) ? this.lastUserMsgAtByQQ.get(qq) : undefined;
+      if (lastByQQ != null && (lastUser == null || lastByQQ > lastUser)) lastUser = lastByQQ;
+    }
     // 没有“对方发言基线”时不启用 idle 收尾，否则会话启动后 bot 发第一条就会被永久拦住
     const sinceUser = lastUser == null ? -1 : Date.now() - lastUser;
     if (streak >= al.maxConsecutiveBotTurns) {
@@ -1917,6 +1928,94 @@ export class QQWorld implements World {
 
   // ---- 工具 ----
   tools(): ToolDef[] {
+    const forwardById: ToolDef = {
+      name: 'qq_forward_by_id',
+      tags: ['speak'],
+      barrierAfter: true,
+      endsTurn: true,
+      description:
+        '按消息 id 合并转发（不伪造身份）：把本 bot 已经接收/发出过的多条消息，合成「一张合并转发卡片」发出到指定群/私聊。卡片由本 bot 发出（node 身份只能是 bot 自己），卡片内每条消息都标注原始发送者（昵称+QQ号）并保留原文内容（图片/引用等也在），绝不冒充任何人。\n' +
+        '用途：群聊/私聊里别人发了好几条消息，你想「挑几条合并成一张卡片转发出去」时调用本工具（正经的 QQ 合并转发，不是一条条发）。\n' +
+        '【限制，务必遵守】① 只能转发本 bot 在本会话里实际收到/发出过的消息，每条消息行首的 #编号 即其 message id，必须是本地记录内存在的编号，传入未见过/编造的编号会被拒绝（防止转发从未见过的消息）；② 合并卡片依赖 send_forward_msg（OneBot 合并转发），node 身份只能是 bot 自己，因此卡片里用「文本标注发送者」+ 保留原文来体现来源，绝不伪造他人身份；③ 需要协议端支持 send_forward_msg 与 get_msg（NapCat/Lagrange/SnowLuma 等 OneBot v11 实现大多支持，不支持会如实报错）；④ 本功能默认关闭，需先在设置里开启「允许按消息 id 原样转发」。',
+      parameters: {
+        type: 'object',
+        properties: {
+          to: { type: 'string', description: '转发目标，原样复制事件 meta 里的 conv 字段。群聊填 "group:<群号>"，私聊填 "private:<QQ号>"。' },
+          message_ids: { type: 'array', items: { type: 'number' }, description: '要合并转发的消息编号数组（即消息行首的 #编号，对应 QQ 真实 message_id）。每条必须在本会话本地记录内存在，否则该条被跳过并提示。多条会合成「一张」合并转发卡片。' },
+        },
+        required: ['to', 'message_ids'],
+      },
+      handler: async (args) => {
+        if (!this.config.forwardByMessageId) {
+          return '「允许按消息 id 原样转发」功能未开启（设置项 worlds.qqbot.forwardByMessageId）。请先在控制台开启后再调用本工具。';
+        }
+        const to = String(args.to ?? '').trim();
+        const ids = Array.isArray(args.message_ids) ? args.message_ids.map((x: unknown) => Number(x)).filter((n: number) => Number.isFinite(n)) : [];
+        if (!ids.length) return 'message_ids 不能为空，且必须是数字编号数组（消息行首的 #编号）。';
+        const target = this.resolveTarget(to);
+        if (!target) return 'to 格式应为 "group:<群号>" 或 "private:<QQ号>"（直接复制事件 meta 里的 conv 字段）。';
+        const address = `${target.kind}:${target.id}`;
+        if (!this.isListened(target.kind, target.id)) {
+          return `该${target.kind === 'group' ? '群' : '私聊'}不在监听名单内，无法转发。`;
+        }
+        if (!this.driver) return '协议端未连接，无法转发。';
+        const selfId = this.identity?.selfId ?? 0;
+        if (!selfId) return 'bot 身份尚未加载，暂无法合并转发，稍候重试。';
+        const skipped: Array<{ id: number; reason: string }> = [];
+        const nodes: Array<Record<string, unknown>> = [];
+        for (const id of ids) {
+          const rec = this.knownMessages.get(String(id));
+          if (!rec) {
+            skipped.push({ id, reason: '本 bot 本地记录中不存在该消息编号（只能转发本 bot 见过/发出过的消息）' });
+            continue;
+          }
+          if (rec.conv !== address) {
+            skipped.push({ id, reason: `该消息属于其他会话（${rec.conv}），不能作为「${address}」的转发目标` });
+            continue;
+          }
+          // 逐条拉回原文：send_forward_msg 无法引用远端消息，必须由本 bot 取出内容再合成卡片。
+          let msg: any = null;
+          try {
+            msg = await this.driver.callApi('get_msg', { message_id: id });
+          } catch (e) {
+            skipped.push({ id, reason: '拉取原消息失败：' + String(e) });
+            continue;
+          }
+          if (!msg || !msg.message) {
+            skipped.push({ id, reason: '拉取原消息为空（可能已撤回/不可读）' });
+            continue;
+          }
+          const sender = (msg.sender ?? {}) as Record<string, unknown>;
+          const uid = sender.user_id != null ? Number(sender.user_id) : undefined;
+          const name = (sender.nickname as string) || (sender.card as string) || (uid != null ? String(uid) : '某人');
+          const srcLabel = `【来自 ${name}${uid != null ? `(${uid})` : ''}】\n`;
+          const segs: unknown = msg.message;
+          // node 身份只能是 bot 自己（OneBot 限制），因此用真实昵称作展示名 + 文本行标注来源，
+          // 原文内容原样保留（数组段直接内嵌，含图片/引用等富媒体）。
+          const content: unknown = Array.isArray(segs)
+            ? [{ type: 'text', data: { text: srcLabel } }, ...segs]
+            : srcLabel + (typeof segs === 'string' ? segs : '');
+          nodes.push({ type: 'node', data: { user_id: selfId, nickname: name, content } });
+        }
+        if (!nodes.length) {
+          return '没有可转发的消息。' + (skipped.length ? '\n跳过：' + skipped.map((s) => `#${s.id}（${s.reason}）`).join('；') : '');
+        }
+        const params: Record<string, unknown> = { messages: nodes };
+        if (target.kind === 'group') params.group_id = target.id;
+        else params.user_id = target.id;
+        try {
+          await this.driver.callApi('send_forward_msg', params);
+        } catch (e) {
+          return '合并转发发送失败：' + String(e) + (skipped.length ? '\n（另有跳过：' + skipped.map((s) => `#${s.id}（${s.reason}）`).join('；') + '）' : '');
+        }
+        let result = `已把 ${nodes.length} 条消息合并成「一张」卡片转发到 ${this.convLabel(address)}（卡片由本 bot 发出，已标注每条来源、原文不变）。`;
+        if (skipped.length) {
+          result += `\n${skipped.length} 条未纳入：` + skipped.map((s) => `#${s.id}（${s.reason}）`).join('；');
+        }
+        return result;
+      },
+    };
+
     const send: ToolDef = {
       name: 'qq_send',
       tags: ['speak'],
@@ -2722,7 +2821,7 @@ export class QQWorld implements World {
       },
     };
 
-    const tools: ToolDef[] = [send, confirm, viewImage, stickerStats, proactiveStatus, proactiveTrigger, qzonePost, qzoneDelete, qzoneReply, qzoneFeeds, qzoneStatus, poke, reminderAdd, reminderList, reminderCancel, noteSave, noteList, noteGet, noteForget, adminRecall, adminAtAll, adminNotice, adminJoinList, adminJoinApprove, adminJoinReject, adminTitle, adminBan, adminBanAll, adminKick, ...makeHistoryTools({
+    const tools: ToolDef[] = [forwardById, send, confirm, viewImage, stickerStats, proactiveStatus, proactiveTrigger, qzonePost, qzoneDelete, qzoneReply, qzoneFeeds, qzoneStatus, poke, reminderAdd, reminderList, reminderCancel, noteSave, noteList, noteGet, noteForget, adminRecall, adminAtAll, adminNotice, adminJoinList, adminJoinApprove, adminJoinReject, adminTitle, adminBan, adminBanAll, adminKick, ...makeHistoryTools({
       getHost: () => this.host,
       sourceId: SOURCE,
       timezone: this.config.timezone,
@@ -3050,7 +3149,7 @@ export class QQWorld implements World {
       : '群聊发言限速未开启。';
     const al = this.config.antiLoop;
     const antiLoopLine = al.enabled
-      ? `话题防死循环已开启：同一会话里你连续发言达到 ${al.maxConsecutiveBotTurns} 条（对方发来任意消息即清零），或对方静默超过 ${al.idleToEndSec}s 且你已经发过言，下一次发言会被自动拦截并提示「话题自动收尾」。请主动把握分寸：对方不接话、只回敷衍或已明显不想聊时，就该停，不要硬聊、不要反复抛同一话题制造死循环。`
+      ? `话题防死循环已开启：同一会话里你连续发言达到 ${al.maxConsecutiveBotTurns} 条（对方发来任意消息即清零），或对方在任意会话（含其所在群）都超过 ${al.idleToEndSec}s 没出现、且你已经发过言，下一次发言会被自动拦截并提示「话题自动收尾」。请主动把握分寸：对方不接话、只在群里冒泡但私聊不回、只回敷衍或已明显不想聊时，就该停，不要硬聊、不要反复抛同一话题制造死循环。`
       : '话题防死循环未开启。';
     const voice = this.config.voice;
     const voiceLine = voice?.enabled && voice?.tts

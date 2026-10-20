@@ -60,6 +60,8 @@ export interface QQWorldConfig {
   maxMessageBytes: number;
   /** 合并转发消息最多展开条数。 */
   forwardExpandLimit: number;
+  /** 是否允许「按消息 id 合并转发」：把本 bot 已接收/已发出的多条消息，用 send_forward_msg 合成一张合并转发卡片发出（卡片身份是 bot 自己，卡片内每条用文本标注原始发送者并保留原文，不伪造）。依赖 OneBot 的 send_forward_msg 与 get_msg。 */
+  forwardByMessageId: boolean;
   /** 本地表情包图片目录（相对扩展或绝对路径），供发送 `[表情包:文件名]` 标记使用。 */
   emojiDir: string;
   /** 是否把图片作为附件交给模型（需要模型支持图像）。 */
@@ -265,6 +267,7 @@ export const QQ_DEFAULTS: QQWorldConfig = {
   replyMaxGapSec: 600,
   maxMessageBytes: 1500,
   forwardExpandLimit: 20,
+  forwardByMessageId: false,
   emojiDir: 'emoji',
   deliverImageAttachments: true,
   splitReplyBySentence: true,
@@ -432,6 +435,7 @@ export const QQ_CONFIG_GROUP: ConfigGroup = {
       'worlds.qqbot.deliverImageAttachments': { type: 'boolean', title: '图片作为模型附件', 'x-hot': true, description: '开启时把收到的图片直接作为附件喂给主模型（主模型需支持看图）。这是默认的看图路径；「辅助视觉」是另一条用独立 VLM 描述图片的路，两条同时开会重复花钱，主模型能看图时就留着这个、关掉辅助视觉。' },
       'worlds.qqbot.emojiDir': { type: 'string', title: '表情包目录', 'x-hot': false, description: '本地表情包图片目录（相对扩展或绝对路径），供发送 [表情包:文件名] 标记。' },
       'worlds.qqbot.splitReplyBySentence': { type: 'boolean', title: '按句拆分发送', 'x-hot': true, description: '开启后回复按句标拆成多条消息（对齐 fat-fish）。' },
+      'worlds.qqbot.forwardByMessageId': { type: 'boolean', title: '允许按消息 id 合并转发', 'x-hot': false, description: '开启后可使用 qq_forward_by_id 工具：把本 bot 已接收或已发出的多条消息，用 send_forward_msg 合成「一张合并转发卡片」发出（卡片由本 bot 发出，node 身份只能是 bot 自己；卡片内每条消息用文本标注原始发送者昵称+QQ号并保留原文内容，不伪造任何身份）。需要协议端支持 send_forward_msg 与 get_msg（NapCat/Lagrange/SnowLuma 等 OneBot v11 实现大多支持）。只能转发本 bot 见过的消息（message id 必须在本地记录内），无法转发从未见过的消息。' },
       'worlds.qqbot.sentencesPerMessage': { type: 'integer', title: '每条句数', minimum: 1, maximum: 10, 'x-hot': true },
       'worlds.qqbot.sendIntervalMs': { type: 'integer', title: '发送间隔(ms)', minimum: 0, maximum: 5000, 'x-hot': true, description: '逐条发送之间的间隔，0 表示不限速。' },
       'worlds.qqbot.vision.enabled': { type: 'boolean', title: '开启辅助视觉', 'x-hot': false, description: '用另一个 VLM 描述图片。主模型本身能看图时不必开（图片已作为附件直达主模型，见「图片作为模型附件」）；仅当主模型不支持图片、或想用专门的视觉模型时才开。' },
@@ -612,6 +616,7 @@ export function normalizeConfig(raw: QQConfigSection): QQWorldConfig {
   if (typeof c.replyMaxGapSec !== 'number') c.replyMaxGapSec = QQ_DEFAULTS.replyMaxGapSec;
   if (typeof c.maxMessageBytes !== 'number') c.maxMessageBytes = QQ_DEFAULTS.maxMessageBytes;
   if (typeof c.forwardExpandLimit !== 'number') c.forwardExpandLimit = QQ_DEFAULTS.forwardExpandLimit;
+  if (typeof c.forwardByMessageId !== 'boolean') c.forwardByMessageId = QQ_DEFAULTS.forwardByMessageId;
   if (typeof c.splitReplyBySentence !== 'boolean') c.splitReplyBySentence = true;
   if (typeof c.sentencesPerMessage !== 'number') c.sentencesPerMessage = 1;
   if (typeof c.sendIntervalMs !== 'number') c.sendIntervalMs = QQ_DEFAULTS.sendIntervalMs;
