@@ -4,6 +4,15 @@
 
 规则：每版本一个二级标题，标题里的第一个版本号即为本节版本。
 
+## 0.6.0
+
+事件驱动改造（落实认证建议第 3 类）：主动说话 / 作息播报 / QQ空间动态·评论回复**不再单独调用第二模型**，改为推内部事件由主模型生成并发送。
+- 删除 `proactive.*` 与 `qzone.*` 的 `endpoint` / `apiKeySecret` / `model` / `systemPrompt`（及 `proactive.topicSimilarity` / `proactive.tokenLimit`）配置项与控制台面板项；这些「独立 LLM」配置已无意义。
+- 主动说话 / 作息播报：`ProactiveSpeaker` 只决定「要不要说、对谁说、说什么方向」，把 nudge 交给主模型；经 `host.pushEvent({origin:'internal'})` + `markPendingReply` 复用「主模型生成 → 自动发到该会话」链路。
+- QQ空间：`qq_qzone_post` 的 `content` 改为必填（不再自动生成动态文字）；评论回复经 `qq_qzone_reply` 由主模型完成。`qzone.*` 第二模型配置项移除。
+- 行为变化：主动冒泡 / 动态 / 评论的内容与语气现在完全由主模型决定（与正常对话一致），风格受人格影响；若主模型「决定不说」则不会发送（可能比旧版更安静，符合「main model decides」）。
+- 配套：cortico-bot-qq-persona（情绪/好感度/外号）已在 0.5.0 拆分完成。
+
 ## 0.5.1
 
 修复：0.5.0 拆分后，默认环境模板 `ENV_PROMPT.md` 仍残留 `{{qq.affinity}}` / `{{qq.emotion}}` 两节（已随拆分迁到 `cortico-bot-qq-persona`），而 `envPromptVars()` / `promptDocs.vars` 不再声明这两个变量，导致控制台「QQ 环境描述」编辑器对这两处报「未提供值」红字。本版删除模板中这两节，红字消除。运行时无需其他改动。

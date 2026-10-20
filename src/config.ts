@@ -89,14 +89,10 @@ export interface QQWorldConfig {
     /** 表情包落盘目录（相对扩展或绝对），空则复用 emojiDir。 */
     dir: string;
   };
-  /** 主动说话调度器：后台按状态机向监听会话主动冒泡闲聊（移植自 fat-fish ProactiveSpeaker）。 */
+  /** 主动说话调度器：后台按状态机向监听会话主动冒泡闲聊（事件驱动：只推 nudge，由主模型生成发送，不再用第二模型）。 */
   proactive: {
     enabled: boolean;
     mode: 'private' | 'group' | 'both';
-    systemPrompt: string;
-    endpoint: string;
-    apiKeySecret: string;
-    model: string;
     tickSec: number;
     warmupMin: number;
     stableChancePerTick: number;
@@ -107,10 +103,6 @@ export interface QQWorldConfig {
     silentHours: number;
     dailyQuota: number;
     dedupWindow: number;
-    /** 主动消息与近期已发内容的相似度上限（0~1，字符二元组 Jaccard），超过则跳过，防同一话题反复换汤不换药。 */
-    topicSimilarity: number;
-    /** 主动消息生成时模型输出 token 上限（越大单次说得越长），页面可填，默认 2000。 */
-    tokenLimit: number;
     /** 主动说话是否带对象昵称/称呼；关闭后不称呼对方具体名字，直接用「你」。默认 true。 */
     withNickname: boolean;
   };
@@ -297,14 +289,6 @@ export const QQ_DEFAULTS: QQWorldConfig = {
   proactive: {
     enabled: false,
     mode: 'private',
-    systemPrompt:
-      '你要主动找对方说话（不是回复，是主动冒泡）。' +
-      '说点自然、轻松、像真人在摸鱼时随手发的闲聊：关心一下、抛个小话题、分享点碎碎念都行。' +
-      '一两句就够，别太长别太正式，别用「请问/您好」这种客服腔，也别每条都问「在吗」。',
-    // 开启主动说话后这三项必填：密钥只写名字，值放密钥库（部署 .env）。
-    endpoint: '',
-    apiKeySecret: '',
-    model: '',
     tickSec: 45,
     warmupMin: 2,
     stableChancePerTick: 0.2,
@@ -315,18 +299,10 @@ export const QQ_DEFAULTS: QQWorldConfig = {
     silentHours: 6,
     dailyQuota: 20,
     dedupWindow: 12,
-    topicSimilarity: 0.6,
-    tokenLimit: 2000,
     withNickname: true,
   },
   qzone: {
     enabled: false,
-    systemPrompt:
-      '你现在要以第一人称在 QQ 空间发一条动态（说说）。内容要像你自己真实的朋友圈碎碎念：可以对最近聊天里某件事、某个人发表你的真实看法、吐槽、安利或简介，也可以分享当下的心情。自然、有梗、带点小情绪，别太长（1-3 句最佳，最多不超 100 字）。不要写成回复、不要加「在吗」、不要客服腔，可带少量 emoji。',
-    // 开启自动动态/自动评论后这三项必填：密钥只写名字，值放密钥库（部署 .env）。
-    endpoint: '',
-    apiKeySecret: '',
-    model: '',
     tickSec: 900,
     chancePerTick: 0.15,
     dailyQuota: 5,
@@ -334,12 +310,10 @@ export const QQ_DEFAULTS: QQWorldConfig = {
     imageMode: 'none',
     autoReplyComments: {
       enabled: false,
-      systemPrompt:
-        '你在 QQ 空间收到别人对你动态的评论，要回一句。自然，像真朋友随口接话，别太长别客套，可带 emoji。',
       dailyQuota: 20,
       cooldownSec: 30,
     },
-    commentAction: 'send_qzone_comment',
+    commentAction: 'auto',
   },
   groupSpeak: {
     enabled: true,
@@ -480,21 +454,13 @@ export const QQ_CONFIG_GROUP: ConfigGroup = {
         'x-hot': true,
         description: 'private=仅私聊；group=仅群；both=都主动。',
       },
-            'worlds.qqbot.proactive.endpoint': { type: 'string', title: '主动说话·模型地址', 'x-hot': false, description: '生成主动闲聊的模型地址（OpenAI 兼容）。开启主动说话后必填。' },
-      'worlds.qqbot.proactive.apiKeySecret': { type: 'string', title: '主动说话·密钥名', 'x-hot': false, description: '密钥在密钥库（部署 .env）里的名字；值由框架 secret() 读取。开启主动说话后必填。' },
-'worlds.qqbot.proactive.model': { type: 'string', title: '主动消息模型', 'x-hot': false, description: '生成主动闲聊用的模型名。开启主动说话后必填。' },
       'worlds.qqbot.proactive.dailyQuota': { type: 'integer', title: '每日上限', minimum: 0, maximum: 200, 'x-hot': true, description: '每日主动消息条数上限（0=不限）。' },
       'worlds.qqbot.qzone.enabled': { type: 'boolean', title: 'QQ空间动态', 'x-hot': false, description: '开启后可在 QQ 空间发动态、自动冒泡、回复评论。需重启生效。' },
-            'worlds.qqbot.qzone.endpoint': { type: 'string', title: '动态生成·模型地址', 'x-hot': false, description: '生成动态/评论的模型地址（OpenAI 兼容）。开启自动动态或自动评论后必填。' },
-      'worlds.qqbot.qzone.apiKeySecret': { type: 'string', title: '动态生成·密钥名', 'x-hot': false, description: '密钥在密钥库（部署 .env）里的名字；值由框架 secret() 读取。开启自动动态或自动评论后必填。' },
-'worlds.qqbot.qzone.model': { type: 'string', title: '动态生成模型', 'x-hot': false, description: '生成动态/评论所用模型名。开启自动动态或自动评论后必填。' },
       'worlds.qqbot.qzone.dailyQuota': { type: 'integer', title: '每日自动动态上限', minimum: 0, maximum: 50, 'x-hot': true, description: '后台自动发动态的每日条数上限（0=不限）。' },
       'worlds.qqbot.qzone.permission': { type: 'integer', title: '动态可见权限', minimum: 0, maximum: 10, 'x-hot': true, description: 'ugc_right：1=公开（默认），其余值随 NapCat 版本。' },
       'worlds.qqbot.qzone.imageMode': { type: 'string', title: '自动附图', enum: ['none', 'recent'], 'x-hot': true, description: 'none=不附图；recent=自动附上最近一条 QQ 图片。' },
       'worlds.qqbot.qzone.autoReplyComments.enabled': { type: 'boolean', title: '自动回复空间评论', 'x-hot': false, description: '收到空间评论时自动生成并回复。需重启生效。' },
       'worlds.qqbot.qzone.commentAction': { type: 'string', title: '评论回复 action', 'x-hot': true, description: '回复评论用的 OneBot action（不同 NapCat 版本可能不同，默认 send_qzone_comment）。' },
-      'worlds.qqbot.proactive.topicSimilarity': { type: 'number', title: '话题相似度上限', minimum: 0, maximum: 1, 'x-hot': true, description: '0~1：主动消息与近期已发内容相似度超过该值则跳过（防同一话题反复换汤不换药）。0=关闭。' },
-      'worlds.qqbot.proactive.tokenLimit': { type: 'integer', title: '主动消息 Token 上限', minimum: 50, maximum: 8000, 'x-hot': true, description: '主动消息生成时模型输出 token 上限（越大单次说得越长）。默认 2000，改完即时生效。' },
       'worlds.qqbot.proactive.withNickname': { type: 'boolean', title: '主动说话带昵称/称呼', 'x-hot': true, description: '开启时主动消息会称呼对方昵称；关闭后不称呼对方具体名字，直接用「你」即可。改完即时生效。' },
       'worlds.qqbot.groupSpeak.enabled': { type: 'boolean', title: '群聊发言限速', 'x-hot': true, description: '开启后限制每个群在单位窗口内被 bot 发出的消息总量，防止刷屏/死循环灌水。' },
       'worlds.qqbot.groupSpeak.maxPerWindow': { type: 'integer', title: '窗口内最大条数', minimum: 1, maximum: 200, 'x-hot': true, description: '滑动窗口内允许发出的群消息上限（含主动与回复）。' },
@@ -673,10 +639,6 @@ export function normalizeConfig(raw: QQConfigSection): QQWorldConfig {
   const p = c.proactive as Record<string, unknown>;
   if (typeof p.enabled !== 'boolean') p.enabled = false;
   if (p.mode !== 'private' && p.mode !== 'group' && p.mode !== 'both') p.mode = 'private';
-  if (typeof p.systemPrompt !== 'string' || !p.systemPrompt) p.systemPrompt = QQ_DEFAULTS.proactive.systemPrompt;
-  if (typeof p.endpoint !== 'string' || !p.endpoint) p.endpoint = QQ_DEFAULTS.proactive.endpoint;
-  if (typeof p.apiKeySecret !== 'string' || !p.apiKeySecret) p.apiKeySecret = QQ_DEFAULTS.proactive.apiKeySecret;
-  if (typeof p.model !== 'string' || !p.model) p.model = QQ_DEFAULTS.proactive.model;
   if (typeof p.tickSec !== 'number') p.tickSec = QQ_DEFAULTS.proactive.tickSec;
   if (typeof p.warmupMin !== 'number') p.warmupMin = QQ_DEFAULTS.proactive.warmupMin;
   if (typeof p.stableChancePerTick !== 'number') p.stableChancePerTick = QQ_DEFAULTS.proactive.stableChancePerTick;
@@ -687,18 +649,12 @@ export function normalizeConfig(raw: QQConfigSection): QQWorldConfig {
   if (typeof p.silentHours !== 'number') p.silentHours = QQ_DEFAULTS.proactive.silentHours;
   if (typeof p.dailyQuota !== 'number') p.dailyQuota = QQ_DEFAULTS.proactive.dailyQuota;
   if (typeof p.dedupWindow !== 'number') p.dedupWindow = QQ_DEFAULTS.proactive.dedupWindow;
-  if (typeof p.topicSimilarity !== 'number' || (p.topicSimilarity as number) < 0 || (p.topicSimilarity as number) > 1) p.topicSimilarity = QQ_DEFAULTS.proactive.topicSimilarity;
-  if (typeof p.tokenLimit !== 'number' || (p.tokenLimit as number) < 50) p.tokenLimit = QQ_DEFAULTS.proactive.tokenLimit;
   if (typeof p.withNickname !== 'boolean') p.withNickname = QQ_DEFAULTS.proactive.withNickname;
   // qzone 子对象原地合并
   c.qzone = c.qzone && typeof c.qzone === 'object' ? c.qzone : {};
   Object.assign(c.qzone, { ...QQ_DEFAULTS.qzone, ...(c.qzone as Record<string, unknown>) });
   const q = c.qzone as Record<string, unknown>;
   if (typeof q.enabled !== 'boolean') q.enabled = false;
-  if (typeof q.systemPrompt !== 'string' || !q.systemPrompt) q.systemPrompt = QQ_DEFAULTS.qzone.systemPrompt;
-  if (typeof q.endpoint !== 'string' || !q.endpoint) q.endpoint = QQ_DEFAULTS.qzone.endpoint;
-  if (typeof q.apiKeySecret !== 'string' || !q.apiKeySecret) q.apiKeySecret = QQ_DEFAULTS.qzone.apiKeySecret;
-  if (typeof q.model !== 'string' || !q.model) q.model = QQ_DEFAULTS.qzone.model;
   if (typeof q.tickSec !== 'number') q.tickSec = QQ_DEFAULTS.qzone.tickSec;
   if (typeof q.chancePerTick !== 'number') q.chancePerTick = QQ_DEFAULTS.qzone.chancePerTick;
   if (typeof q.dailyQuota !== 'number') q.dailyQuota = QQ_DEFAULTS.qzone.dailyQuota;
@@ -707,7 +663,6 @@ export function normalizeConfig(raw: QQConfigSection): QQWorldConfig {
   const ar = (q.autoReplyComments ??= {}) as Record<string, unknown>;
   Object.assign(ar, { ...QQ_DEFAULTS.qzone.autoReplyComments, ...ar });
   if (typeof ar.enabled !== 'boolean') ar.enabled = false;
-  if (typeof ar.systemPrompt !== 'string' || !ar.systemPrompt) ar.systemPrompt = QQ_DEFAULTS.qzone.autoReplyComments.systemPrompt;
   if (typeof ar.dailyQuota !== 'number') ar.dailyQuota = QQ_DEFAULTS.qzone.autoReplyComments.dailyQuota;
   if (typeof ar.cooldownSec !== 'number') ar.cooldownSec = QQ_DEFAULTS.qzone.autoReplyComments.cooldownSec;
   if (typeof q.commentAction !== 'string' || !q.commentAction) q.commentAction = QQ_DEFAULTS.qzone.commentAction;

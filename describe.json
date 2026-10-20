@@ -145,17 +145,17 @@
     },
     {
       "name": "qq_qzone_post",
-      "description": "在 QQ 空间发一条动态（说说）。内容按「最近聊天 + 你对人或事的真实看法」自己生成：可省略 content 让它自动按对话与记忆发挥（topic 给方向，如“吐槽最近的天气/介绍某人”）；也可直接给 content 发你写好的。可附图片（images：仅支持 http(s):// 与 base64:// 链接，出于安全考虑不支持本机文件）与 @人（ats：昵称或 QQ 号）。permission 默认 1=公开。返回 tid 供后续删除/回复。",
+      "description": "在 QQ 空间发一条动态（说说）。content 为动态正文，必须由你（主模型）显式给出——本扩展不再自动生成动态文字。内容按「最近聊天 + 你对人或事的真实看法」以第一人称写：吐槽/安利/简介/分享心情都行，自然有梗，1-3 句。可附图片（images：仅支持 http(s):// 与 base64:// 链接，出于安全考虑不支持本机文件）与 @人（ats：昵称或 QQ 号）。permission 默认 1=公开。返回 tid 供后续删除/回复。",
       "parameters": {
         "type": "object",
         "properties": {
           "content": {
             "type": "string",
-            "description": "动态正文；留空则自动生成（结合最近聊天与记忆，以第一人称发表看法/吐槽/简介）。"
+            "description": "动态正文（必填）：以第一人称写，结合最近聊天与记忆发表真实看法/吐槽/简介/心情。"
           },
           "topic": {
             "type": "string",
-            "description": "自动生成时的方向提示，如「吐槽最近的天气」「介绍一下小明」。"
+            "description": "可选方向提示，如「吐槽最近的天气」「介绍一下小明」。"
           },
           "images": {
             "type": "array",
@@ -176,7 +176,9 @@
             "description": "可见权限 ugc_right，默认 1=公开。"
           }
         },
-        "required": []
+        "required": [
+          "content"
+        ]
       },
       "tags": [
         "speak"

@@ -65,10 +65,9 @@ Cortico 的 **QQ（OneBot v11 / NapCat）** World 扩展。以 `fat-fish` 仓库
 | `qzone.imageMode` | `none` | `none`=不带图 / `recent`=附上最近一张收到/发出的图 |
 | `qzone.autoReplyComments.enabled` | `false` | 收到空间评论时自动回复 |
 | `qzone.autoReplyComments.chance` | `0.5` | 单条评论自动回复概率 |
-| `qzone.commentAction` | `send_qzone_comment` | 回评所用的 OneBot action 名（NapCat 可能为其它名，可改） |
-| `proactive.topicSimilarity` | `0.6` | 主动消息与近期已发内容的相似度上限（0~1，字符二元组 Jaccard）；超过则跳过，防同一话题反复换汤不换药。0=关闭 |
-| `proactive.endpoint` / `proactive.apiKeySecret` / `proactive.model` | `""` | 生成主动闲聊的 OpenAI 兼容端点、密钥名（值在部署密钥库）、模型名。**开启主动说话后三项必填** |
-| `proactive.dailyQuota` / `proactive.tokenLimit` | `20` / `2000` | 每日主动消息上限（0=不限）/ 单次生成 token 上限 |
+| `qzone.commentAction` | `send_qzone_comment` | 回评所用的 OneBot action 名（NapCat 可能为其它名，可改）。**v0.6.0 起评论回复改为事件驱动（主模型经 qq_qzone_reply 回复），不再用第二模型** |
+| `proactive.endpoint` / `proactive.apiKeySecret` / `proactive.model` | 已移除 | **v0.6.0 起主动说话改为事件驱动**：不再单独调用 LLM，改由主模型在收到主动说话事件后生成并发送，这些第二模型配置项已删除 |
+| `proactive.dailyQuota` | `20` | 每日主动消息上限（0=不限）。`topicSimilarity`/`tokenLimit` 等第二模型相关配置项已随 0.6.0 移除 |
 | `groupSpeak.enabled` | `true` | 群聊发言频率限制开关（含主动与回复） |
 | `groupSpeak.maxPerWindow` | `12` | 滑动窗口内每个群允许发出的消息上限 |
 | `groupSpeak.windowSec` | `60` | 限速滑动窗口长度（秒） |

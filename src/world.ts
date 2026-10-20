@@ -22,7 +22,7 @@ import { type Conv, type OneBotMessage, type OneBotSegment, type QQIdentity, typ
 import { Vision } from './vision.ts';
 import { StickerStore } from './sticker.ts';
 import { ReminderStore, parseWhen, formatWhen } from './reminder.ts';
-import { ProactiveSpeaker, type ProactiveTarget, routineSegment } from './proactive.ts';
+import { ProactiveSpeaker, type ProactiveTarget } from './proactive.ts';
 import { makeHistoryTools } from './history-tools.ts';
 import { Notebook } from './notebook.ts';
 import { festivalText } from './festival.ts';
@@ -351,11 +351,20 @@ export class QQWorld implements World {
       log: this.log,
       dataDir: this.dataDir,
       callApi: (action, params) => this.driver.callApi(action, params),
-      chatCompletion: (messages) => this.qzoneCompletion(messages),
       getContext: () => this.qzoneContext(),
       getRecentImageUrl: () => this.recentImageUrl(),
       isPaused: () => this.host?.isPaused?.() ?? false,
       pushEvent: (e) => this.host.pushEvent(e as never, { trigger: 'piggyback' }),
+      // 事件驱动：把"请主模型发动态/回评论"的请求交给主模型（不再用第二模型）。
+      requestLLM: (nudge, kind, meta) => {
+        this.host.pushEvent({
+          type: kind === 'reply' ? 'qq.qzone.reply' : 'qq.qzone.post',
+          origin: 'internal',
+          source: SOURCE,
+          text: nudge,
+          meta: meta ?? {},
+        } as never);
+      },
       identity: () => this.identity,
     });
     this.qzone.start();
@@ -386,101 +395,27 @@ export class QQWorld implements World {
       getTargets: () => this.proactiveTargets(),
       routine: this.config.routine,
       selfName: this.resolveSelfRef(),
-      send: async (address, text) => {
-        // 解析主动生成文本里的动作标记（让主动冒泡也能 @人 / 戳一啄）：
-        //  - [[poke:QQ号或群昵称]]  → 戳一啄该成员（无文本动作）
-        //  - @QQ号 / @群昵称        → 在消息开头 @ 该成员
-        const groupId = address.startsWith('group:') ? Number(address.split(':')[1]) : null;
-        let body = text;
-        const pokeTargets: Array<{ qq: number; who: string }> = [];
-        const pokeRe = /\[\[poke:\s*([^\]]+?)\s*\]\]/g;
-        let pm: RegExpExecArray | null;
-        while ((pm = pokeRe.exec(body))) {
-          const qq = await this.resolveQQ(groupId, pm[1].trim());
-          if (qq != null) pokeTargets.push({ qq, who: pm[1].trim() });
-          else this.log.warn('proactive 戳一啄解析失败（已跳过）', { who: pm[1] });
-        }
-        body = body.replace(pokeRe, '');
-        // 收集 @（QQ号或群内昵称），并从正文移除，避免 sendTo 重复注入 at 段。
-        const atQQs: number[] = [];
-        const atRe = /@([^\s@]{1,30})/g;
-        const atMentioned: string[] = [];
-        let am: RegExpExecArray | null;
-        while ((am = atRe.exec(body))) atMentioned.push(am[1]);
-        if (atMentioned.length) {
-          const resolved = await Promise.all(atMentioned.map((w) => this.resolveQQ(groupId, w)));
-          for (const q of resolved) if (q != null) atQQs.push(q);
-          body = body.replace(atRe, '').replace(/\s{2,}/g, ' ').trim();
-        }
-        // 先执行戳一啄动作（无文本）。
-        for (const t of pokeTargets) {
-          try {
-            if (groupId != null) await this.driver?.callApi('group_poke', { group_id: groupId, user_id: t.qq });
-            else await this.driver?.callApi('friend_poke', { user_id: t.qq });
-          } catch (e) {
-            this.log.warn('proactive 戳一啄失败', { qq: t.qq, err: String(e) });
-          }
-        }
-        // 再发文本（带 @）。
-        let res = '（主动冒泡：仅动作，无文本）';
-        // 兜底硬守卫：主动私聊时若开口喊的是「别人」的名字，直接改成当前对象的真名。
-        const guard = this.correctMisaddressed(body.trim(), address);
-        const spoken = guard.text;
-        if (spoken) {
-          res = await this.sendTo(address, spoken, undefined, atQQs.length ? atQQs : undefined);
-        }
-        if (guard.wrong) {
-          try {
-            await this.host?.pushEvent({
-              type: 'qq.message',
-              ts: eventTs(this.config.timezone),
-              source: SOURCE,
-              origin: 'internal',
-              text: `（主动说话称呼纠正：我本来把「${this.convLabel(address)}」叫成了「${guard.wrong}」，那是别人的名字，已经改口叫「${guard.right}」了。）`,
-              senderKey: address,
-              meta: { conv: address, role: 'system', self: true },
-            }, { trigger: 'piggyback' });
-          } catch (e) {
-            this.log.warn('称呼纠正回灌失败 ' + String(e));
-          }
-        }
-        // 把 bot 自己主动说的话/做的动作回灌进 session 上下文：origin=internal 会渲染进
-        // 上下文但不唤醒回合（不会回声回复），否则她不记得自己主动说过/做过什么。
-        try {
-          const [kind, idStr] = address.split(':');
-          const conv = this.convs.get(address);
-          const label = conv?.label ?? idStr;
-          const clock = eventClock(this.config.timezone);
-          const selfName = this.identity?.nickname ?? '我';
-          const bits: string[] = [];
-          if (spoken) bits.push(`说了下面这句话：“${spoken}”`);
-          if (atQQs.length) bits.push(`并 @了 ${atQQs.length} 人`);
-          if (pokeTargets.length) bits.push('并戳了 ' + pokeTargets.map((t) => `${t.who}(QQ:${t.qq})`).join('、'));
-          if (!bits.length) bits.push('发了个动作（戳一啄）');
-          const prefix = kind === 'group'
-            ? `我是${selfName}。刚才(约 ${clock})我主动在QQ群「${label}」里`
-            : `我是${selfName}。刚才(约 ${clock})我主动在QQ私聊里`;
-          await this.host?.pushEvent({
-            type: 'qq.message',
-            ts: eventTs(this.config.timezone),
-            source: SOURCE,
-            origin: 'internal',
-            text: `${prefix}${bits.join('，')}。`,
-            senderKey: address,
-            meta: { conv: address, role: 'assistant', self: true },
-          }, { trigger: 'piggyback' });
-        } catch (e) {
-          this.log.warn('proactive 回灌上下文失败 ' + String(e));
-        }
-        return res;
+      // 事件驱动：把"要主动说点什么"的请求交给主模型生成并发送（不再用第二模型）。
+      requestSpeech: (t, nudge, pending) => {
+        const address = t.address;
+        this.host.pushEvent({
+          type: 'qq.proactive',
+          origin: 'internal',
+          source: SOURCE,
+          text: nudge,
+          senderKey: address,
+          meta: { conv: address },
+        } as never);
+        if (pending) this.markPendingReply(address);
       },
-      generate: (messages) => this.chatCompletion(messages),
-      // 让主动说话调度器感知总开关：暂停时 tick 直接停手。
-      isPaused: () => this.host?.isPaused?.() ?? false,
-      // 主动说话复用 Persona + 记忆，避免与正常对话割裂。
-      systemPromptFor: (target) => this.proactiveSystemPrompt(target),
     });
     this.proactive.start();
+  }
+
+  /** 标记某会话为"本轮待主模型回"：回合结束若主模型只输出了文本没调 qq_send，则自动发到该会话。 */
+  private markPendingReply(address: string): void {
+    if (this.host?.isPaused?.()) return;
+    this._pendingReplyConvs.add(address);
   }
 
   /** 按 mode 过滤出可主动说话的监听会话。 */
@@ -594,68 +529,11 @@ export class QQWorld implements World {
     return { ok: true, endpoint: endpoint.replace(/\/+$/, ''), apiKey: key, model };
   }
 
-  /** OpenAI 兼容 chat 补全（主动消息生成用），失败返回 null。
-   *  主动说话需要「贴着事实」，故温度压到 0.5（默认 0.9 太飘，容易编造）。 */
-  private async chatCompletion(messages: ChatMsg[]): Promise<string | null> {
-    const cfg = this.config.proactive;
-    return this.completeChat(cfg, messages, { temperature: 0.5, maxTokens: cfg.tokenLimit ?? 2000 }, '主动说话');
-  }
-
   /**
-   * 主动说话的系统提示词：复用该会话已有的记忆，
-   * 让主动冒泡的语气与内容跟正常对话保持一致，不再「割裂」。
+   * 主动说话现改为事件驱动（见 ProactiveSpeaker.requestSpeech + markPendingReply）：
+   * 调度器只决定"现在要不要说、对每个会话构造一句 nudge"，把 nudge 交给主模型生成并发送，
+   * 不再维护独立的系统提示词。记忆/人称/时间感由主模型自身上下文（Persona + 记忆）提供。
    */
-  private proactiveSystemPrompt(target: ProactiveTarget): string {
-    const blocks: string[] = [];
-    // 最先钉死「现在在对谁说话」：否则模型会把长期笔记/别处记忆里的人名当成当前对象的称呼。
-    const who = this.whoAmITalkingToBlock(target);
-    if (who) blocks.push(who);
-    // 关键：把这个会话最近的真实对话塞进去，作为「事实基底」，否则 LLM 只能凭空编。
-    const recent = this.recentContextFor(target.address);
-    if (recent) {
-      blocks.push(
-        '## 这个会话最近的真实对话（只基于这里出现过的内容说话，没出现过的事件/计划/细节一律不要编造）\n' +
-          '（行首标了 [我] 的是你自己以前说过的话。若里面出现把你对话对象叫成别的名字的，那是当时口误，一律不要沿用。）\n' +
-          recent,
-      );
-    }
-    const mem = this.recallProactiveMemory(target.address);
-    if (mem) blocks.push('## 你关于这个会话已有的记忆\n' + mem);
-    const notes = this.recallProfileNotes();
-    if (notes) {
-      blocks.push(
-        '## 你的长期笔记（全局，务必遵守）\n' +
-          '（警告：这些笔记是「别人/别处」的事。里面出现的人名属于那些场合，不许拿来称呼你现在正在对话的这个对象。）\n' +
-          notes,
-      );
-    }
-    const routine = this.routineSegmentText();
-    if (routine) blocks.push(routine);
-    // 当下时间与时令（含节日/节气/农历感知）：让主动说话也能自然呼应今天是什么日子，
-    // 而不只是被动回复时才懂——比如中秋主动发句问候、冬至聊吃饺子，而不是只有被问到才提。
-    const timeFestival = [
-      `当前时间：${this.nowText()}（时区 ${this.config.timezone}）。`,
-      this.festivalLine(),
-    ].filter(Boolean).join('\n');
-    if (timeFestival) {
-      blocks.push('## 当下时间与时令（用于让主动说话自然呼应今天的日子、节气或节日；不要生硬念，自然带过即可）\n' + timeFestival);
-    }
-    if (this.config.proactive.systemPrompt) {
-      blocks.push(
-        this.config.proactive.systemPrompt +
-          '\n\n【硬性约束】主动说话只能基于上面「真实对话」与「记忆」里出现过的内容。' +
-          '严禁编造：不要引用没发生过的「上次/上回」、对方从没提过的计划或偏好、对话里没出现过的细节。' +
-          '如果上面的真实对话/记忆里没什么可接的，就聊点当下泛泛的关心或问候（天气、心情、摸鱼），' +
-          '或者返回空内容（什么都不发）也完全可以——绝对不要为了凑话题而虚构具体事件。' +
-          '\n\n【主动动作（可选）】除了说话，你还可以主动 @人 或 戳一啄：' +
-          '在生成内容里用 `@昵称` 或 `@QQ号` 来 @某人；用 `[[poke:昵称或QQ号]]` 来戳一啄某人' +
-          '（戳一啄是无文本的动作，可以单独发，也可以和说话一起）。注意：' +
-          '只在群聊里、且只对这些会话「真实对话」里近期出现过/有互动的成员使用动作；' +
-          '次数要克制，不要每条主动消息都 @或戳（容易打扰），偶尔、自然地用才合适；私聊戳一啄留空为戳对话对象。'
-      );
-    }
-    return blocks.join('\n\n');
-  }
 
   /**
    * 「你现在在跟谁说话」块：把当前会话对象的真名与 QQ 号钉死，并明确禁止拿别处（长期笔记/别的会话）的人名来称呼 TA。
@@ -834,13 +712,7 @@ export class QQWorld implements World {
     }
   }
 
-  /** 动态生成（QQ空间）专用模型调用，与主动说话共用同一套 fetch 逻辑。 */
-  private async qzoneCompletion(messages: ChatMsg[]): Promise<string | null> {
-    const cfg = this.config.qzone as QZoneConfig;
-    return this.completeChat(cfg, messages, undefined, 'QQ空间动态');
-  }
-
-  /** OpenAI 兼容 chat/completions 调用（供主动说话、动态生成、情绪感知复用）。
+  /** OpenAI 兼容 chat/completions 调用（供辅助视觉复用；主动说话/QQ空间已改为事件驱动，不再经此）。
    *  模型来源由 {@link resolveHelperModel} 决定：三项配置缺一不可，密钥走框架 secret()。 */
   private async completeChat(
     cfg: { endpoint: string; apiKeySecret: string; model: string },
@@ -2242,17 +2114,17 @@ export class QQWorld implements World {
       tags: ['speak'],
       barrierAfter: true,
       description:
-        '在 QQ 空间发一条动态（说说）。内容按「最近聊天 + 你对人或事的真实看法」自己生成：可省略 content 让它自动按对话与记忆发挥（topic 给方向，如“吐槽最近的天气/介绍某人”）；也可直接给 content 发你写好的。可附图片（images：仅支持 http(s):// 与 base64:// 链接，出于安全考虑不支持本机文件）与 @人（ats：昵称或 QQ 号）。permission 默认 1=公开。返回 tid 供后续删除/回复。',
+        '在 QQ 空间发一条动态（说说）。content 为动态正文，必须由你（主模型）显式给出——本扩展不再自动生成动态文字。内容按「最近聊天 + 你对人或事的真实看法」以第一人称写：吐槽/安利/简介/分享心情都行，自然有梗，1-3 句。可附图片（images：仅支持 http(s):// 与 base64:// 链接，出于安全考虑不支持本机文件）与 @人（ats：昵称或 QQ 号）。permission 默认 1=公开。返回 tid 供后续删除/回复。',
       parameters: {
         type: 'object',
         properties: {
-          content: { type: 'string', description: '动态正文；留空则自动生成（结合最近聊天与记忆，以第一人称发表看法/吐槽/简介）。' },
-          topic: { type: 'string', description: '自动生成时的方向提示，如「吐槽最近的天气」「介绍一下小明」。' },
+          content: { type: 'string', description: '动态正文（必填）：以第一人称写，结合最近聊天与记忆发表真实看法/吐槽/简介/心情。' },
+          topic: { type: 'string', description: '可选方向提示，如「吐槽最近的天气」「介绍一下小明」。' },
           images: { type: 'array', items: { type: 'string' }, description: '附图链接数组（仅支持 http(s):// 与 base64://；出于安全考虑不支持本机文件）。' },
           ats: { type: 'array', items: { type: 'string' }, description: '@的人：昵称或 QQ 号数组。' },
           permission: { type: 'number', description: '可见权限 ugc_right，默认 1=公开。' },
         },
-        required: [],
+        required: ['content'],
       },
       handler: async (args) => {
         if (!this.qzone) return 'QQ空间动态未启用（先在控制台开 worlds.qqbot.qzone.enabled 并重启）。';

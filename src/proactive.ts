@@ -1,480 +1,358 @@
+// 主动说话调度器（事件驱动版）。
+//
+// 设计：本模块**不再调用任何第二模型**（独立的 LLM 地址/密钥/模型）。
+// 主动说话 / 作息播报只负责「决定现在要不要说、对每个会话构造一句 nudge」，
+// 然后把 nudge 交给主模型生成并发送——由 world 通过 `host.pushEvent(..., origin:'internal')`
+// 触发一轮主模型回合，主模型输出（或主动调 qq_send）即送达该会话。
+// 这样主模型决定「说什么」，语气/分寸与正常对话一致，且不需要单独的模型配置。
+
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Logger } from 'cortico/core/types.ts';
+import type { ActiveGroup, ActivePrivate } from './world.ts';
+import type { ProactiveConfig } from './config.ts';
 
-/**
- * 主动说话调度器（移植自 fat-fish qq_bot_runtime 的 ProactiveSpeaker）。
- *
- * 后台每分钟 tick 一次，按状态机（warmup / stable / silent）决定是否向某个监听会话
- * 主动发一条闲聊消息：
- *  - warmup：接入后前 warmupMin 分钟，高概率（warmupChance）且保证至少发一条；
- *  - stable：之后低概率（stableChancePerTick）随机冒泡；
- *  - silent：某会话连续 unrepliedThreshold 条主动消息都未获回复，则静默 silentHours 小时。
- *
- * 自带：内容去重（最近若干条不重复）、每日配额、私聊/群冷却、跨重启持久化。
- * 与 MC 有关的能力（发现玩法/求助）已被剥离——QQ 插件没有游戏状态，只保留闲聊冒泡。
- */
-export interface ProactiveTarget {
-  address: string; // 'private:123' | 'group:456'
-  kind: 'private' | 'group';
-  label: string;
-}
+export type ProactiveTarget = ActiveGroup | ActivePrivate;
 
-/** 作息配置：按真实时间切换「睡眠/午休/活跃」状态。 */
 export interface RoutineConfig {
-  /** 是否启用作息。 */
   enabled: boolean;
-  /** 睡眠时段开始（HH:MM 24h）。到 sleepEnd 之间为「睡眠」，不主动冒泡但可被动回复。 */
-  sleepStart: string;
-  /** 睡眠时段结束（HH:MM）。可早于 sleepStart 形成跨午夜（如 23:00→07:30）。 */
-  sleepEnd: string;
-  /** 午休/打盹时段开始（HH:MM），仅作状态注入，不屏蔽主动冒泡。 */
-  lazyStart: string;
-  /** 午休/打盹时段结束（HH:MM）。 */
-  lazyEnd: string;
-  /** 进入睡眠时播报文案：LLM 生成失败时回退使用的兜底文案（正常由 LLM 现场生成，每次不固定）。空=无兜底。 */
-  greetSleep: string;
-  /** 离开睡眠（醒来）时播报文案：同上，兜底用。 */
-  greetWake: string;
-  /** 进入午休时播报文案：同上，兜底用。 */
-  greetLazy: string;
+  targetMode: 'private' | 'group' | 'both';
+  silentStart: string;
+  silentEnd: string;
+  noonStart: string;
+  noonEnd: string;
+  wakeAnnounce: boolean;
+  noonAnnounce: boolean;
+  sleepAnnounce: boolean;
 }
 
-/** 根据作息配置与当前时间算出所处时段（sleep 可跨午夜）。 */
-export function routineSegment(cfg: RoutineConfig, now: Date = new Date()): 'sleep' | 'lazy' | 'active' {
-  const toMin = (hhmm: string): number => {
-    const [h, m] = hhmm.split(':').map(Number);
-    return (h || 0) * 60 + (m || 0);
-  };
+export class Routine {
+  constructor(private readonly cfg: RoutineConfig, private readonly log: (...a: unknown[]) => void) {}
+
+  segment(): string | null {
+    if (!this.cfg.enabled) return null;
+    return routineSegment(this.cfg);
+  }
+
+  isLunchBreak(): boolean {
+    return this.cfg.enabled && inRange(this.cfg.noonStart, this.cfg.noonEnd);
+  }
+
+  isSleep(): boolean {
+    return this.cfg.enabled && inRange(this.cfg.silentStart, this.cfg.silentEnd);
+  }
+
+  /** 当前作息切到了哪个阶段（用于到点播报）。返回 null 表示没切。 */
+  phase(scene: 'sleep' | 'noon' | 'wake'): 'on' | 'off' | null {
+    if (!this.cfg.enabled) return null;
+    if (scene === 'sleep') return this.isSleep() ? 'on' : 'off';
+    if (scene === 'noon') return this.isLunchBreak() ? 'on' : 'off';
+    return this.isSleep() ? 'off' : 'on';
+  }
+
+  /** 到点播报文案（很短，主模型可原样用作碎碎念，也可自行发挥）。 */
+  announceText(scene: 'sleep' | 'noon' | 'wake'): string {
+    if (scene === 'sleep') return '到点睡啦，先去躺着，明天再聊～';
+    if (scene === 'noon') return '午休一下，吃饱喝足再战。';
+    return '醒啦，新的一天开始咯。';
+  }
+}
+
+function inRange(start: string, end: string): boolean {
+  const now = new Date();
   const cur = now.getHours() * 60 + now.getMinutes();
-  const s0 = toMin(cfg.sleepStart);
-  const s1 = toMin(cfg.sleepEnd);
-  const inSleep = s0 <= s1 ? cur >= s0 && cur < s1 : cur >= s0 || cur < s1;
-  if (inSleep) return 'sleep';
-  const l0 = toMin(cfg.lazyStart);
-  const l1 = toMin(cfg.lazyEnd);
-  if (l0 <= l1 && cur >= l0 && cur < l1) return 'lazy';
-  return 'active';
+  const [sh, sm] = start.split(':').map(Number);
+  const [eh, em] = end.split(':').map(Number);
+  const s = sh * 60 + sm;
+  const e = eh * 60 + em;
+  if (s <= e) return cur >= s && cur < e;
+  return cur >= s || cur < e;
 }
 
-export interface ProactiveConfig {
-  enabled: boolean;
-  /** 对哪些会话主动说话：private=仅私聊；group=仅群；both=都。 */
-  mode: 'private' | 'group' | 'both';
-  /** 生成主动消息用的 system 提示（闲聊风格）。 */
-  systemPrompt: string;
-  /** OpenAI 兼容 chat 端点（默认与视觉共用 OpenRouter）。 */
-  endpoint: string;
-  /** 取 API Key 的环境变量名。 */
-  apiKeySecret: string;
-  /** chat 模型名。 */
-  model: string;
-  /** tick 周期（秒）。 */
-  tickSec: number;
-  /** 暖场时长（分钟）。 */
-  warmupMin: number;
-  /** stable 状态每 tick 发送概率（1/30）。 */
-  stableChancePerTick: number;
-  /** warmup 状态每 tick 发送概率（1/3）。 */
-  warmupChance: number;
-  /** 私聊两次主动消息最小间隔（秒）。 */
-  privateCooldownSec: number;
-  /** 群两次主动消息最小间隔（秒）。 */
-  groupCooldownSec: number;
-  /** 连续未回复多少条进入静默。 */
-  unrepliedThreshold: number;
-  /** 静默时长（小时）。 */
-  silentHours: number;
-  /** 每日主动消息上限（0=不限）。 */
-  dailyQuota: number;
-  /** 去重窗口：记住最近多少条主动消息避免重复。 */
-  dedupWindow: number;
-  /** 主动消息与近期已发内容相似度上限（0~1，字符二元组 Jaccard）；超过则跳过，防同一话题反复换汤不换药。 */
-  topicSimilarity: number;
-  /** 主动消息生成时模型输出 token 上限（越大单次说得越长），页面可填，默认 2000。 */
-  tokenLimit: number;
-  /** 主动说话是否带对象昵称/称呼；关闭后不称呼对方具体名字，直接用「你」。默认 true。 */
-  withNickname: boolean;
+function routineSegment(cfg: RoutineConfig): string {
+  const parts: string[] = [];
+  if (cfg.enabled) {
+    parts.push(`你的作息：约 ${cfg.silentStart}–${cfg.silentEnd} 睡眠（睡眠段不主动冒泡），约 ${cfg.noonStart}–${cfg.noonEnd} 午休（午休段语气可以随意点，但别太长）。`);
+  }
+  if (cfg.wakeAnnounce) parts.push(`醒来（${cfg.silentEnd} 附近）可发一句「早/醒啦」。`);
+  if (cfg.noonAnnounce) parts.push(`午休开始（${cfg.noonStart} 附近）可发一句午休碎碎念。`);
+  if (cfg.sleepAnnounce) parts.push(`睡前（${cfg.silentEnd} 附近）可发一句晚安/收尾。`);
+  return parts.length ? '## AI 作息（routine）\n' + parts.join('\n') : null;
 }
 
-export type ChatMsg = { role: 'system' | 'user' | 'assistant'; content: string };
-type AddrState = {
-  firstSeen: number;
+export interface ProactiveSpeakerOptions {
+  cfg: ProactiveConfig;
+  log: (...a: unknown[]) => void;
+  dataDir: string;
+  getTargets: () => ProactiveTarget[];
+  routine: RoutineConfig;
+  selfName: string;
+  /** 由 world 注入：把"要主动说点什么"的请求交给主模型生成并发送。pending=true 时标记该会话为"本轮待回"，否则（如作息播报）由主模型自行调 qq_send。 */
+  requestSpeech: (target: ProactiveTarget, nudge: string, pending: boolean) => void;
+}
+
+interface State {
   lastSent: number;
   unreplied: number;
-  silentUntil: number;
-  state: 'warmup' | 'stable' | 'silent';
-};
-
-export interface ProactiveStatus {
-  enabled: boolean;
-  runState: '关' | '暖场' | '稳定' | '静默';
-  dailyCount: number;
-  dailyQuota: number;
-  targets: number;
-  recent: string[];
-  perAddr: Record<string, { state: string; unreplied: number; silentUntil: number; lastSent: number }>;
+  firstMessageSent: boolean;
 }
 
 export class ProactiveSpeaker {
   private readonly cfg: ProactiveConfig;
-  private readonly log: Logger;
+  private readonly log: (...a: unknown[]) => void;
   private readonly dataDir: string;
-  private readonly stateFile: string;
-  private readonly generate: (messages: ChatMsg[]) => Promise<string | null>;
-  private readonly send: (address: string, text: string) => Promise<string>;
   private readonly getTargets: () => ProactiveTarget[];
-  private readonly isPaused?: () => boolean;
-  private readonly systemPromptFor?: (target: ProactiveTarget) => string;
-  private readonly routine?: RoutineConfig;
-  /** 自称（第一人称昵称）。 */
+  private readonly routine: RoutineConfig;
   private readonly selfName: string;
+  private readonly requestSpeech: (target: ProactiveTarget, nudge: string, pending: boolean) => void;
 
-  private readonly states = new Map<string, AddrState>();
-  private recent: string[] = [];
+  private readonly states = new Map<string, State>();
+  private readonly recent: string[] = [];
   private dailyCount = 0;
-  private dayStart = startOfDay();
-  private firstMessageSent = false;
-  private timer: ReturnType<typeof setInterval> | undefined;
-  private runState: ProactiveStatus['runState'] = '稳定';
-  /** 上次记录的作息时段（用于检测时段切换并播报）。首次运行（无存档）不播报。 */
-  private lastRoutineSegment: 'sleep' | 'lazy' | 'active' | undefined;
+  private day = '';
+  private lastRoutineSegment: 'sleep' | 'lazy' | 'active' | '' = '';
+  private timer?: ReturnType<typeof setInterval>;
+  private readonly scheduleKey = 'proactive-state.json';
 
-  constructor(opts: {
-    cfg: ProactiveConfig;
-    log: Logger;
-    dataDir: string;
-    generate: (messages: ChatMsg[]) => Promise<string | null>;
-    send: (address: string, text: string) => Promise<string>;
-    getTargets: () => ProactiveTarget[];
-    /** 总开关是否暂停；提供时暂停则 tick 直接停手。 */
-    isPaused?: () => boolean;
-    /** 给定目标，返回主动说话用的系统提示词（含 Persona + 记忆）；不提供则回退 cfg.systemPrompt。 */
-    systemPromptFor?: (target: ProactiveTarget) => string;
-    /** 作息配置：睡眠段暂停主动冒泡 + 时段切换播报。 */
-    routine?: RoutineConfig;
-    /** 自称（第一人称昵称）。 */
-    selfName?: string;
-  }) {
+  constructor(opts: ProactiveSpeakerOptions) {
     this.cfg = opts.cfg;
-    this.log = opts.log.child('proactive');
+    this.log = opts.log;
     this.dataDir = opts.dataDir;
-    this.stateFile = opts.dataDir ? join(opts.dataDir, 'proactive-state.json') : '';
-    this.generate = opts.generate;
-    this.send = opts.send;
     this.getTargets = opts.getTargets;
-    this.isPaused = opts.isPaused;
-    this.systemPromptFor = opts.systemPromptFor;
     this.routine = opts.routine;
-    this.selfName = (opts.selfName ?? '').trim() || '我';
+    this.selfName = opts.selfName;
+    this.requestSpeech = opts.requestSpeech;
     this.load();
   }
 
   start(): void {
-    if (!this.cfg.enabled) {
-      this.runState = '关';
-      return;
-    }
-    this.runState = '暖场';
-    this.timer = setInterval(() => void this.tick().catch((e) => this.log.warn('主动调度 tick 异常', { err: String(e) })), Math.max(5, this.cfg.tickSec) * 1000);
-    this.log.info('主动说话调度器已启动', { tickSec: this.cfg.tickSec, mode: this.cfg.mode });
+    if (this.timer) return;
+    const sec = Math.max(5, this.cfg.tickSec || 30);
+    this.timer = setInterval(() => this.tick().catch((e) => this.log.error('tick error', e)), sec * 1000);
+    this.log.info('started', { tickSec: sec });
   }
 
   stop(): void {
-    this.runState = '关';
-    if (this.timer) clearInterval(this.timer);
-    this.timer = undefined;
-    this.save();
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = undefined;
+    }
   }
 
-  /** 收到对方消息时调用：重置该会话的未回复计数并解除静默。 */
   notifyReply(address: string): void {
     const s = this.states.get(address);
-    if (!s) return;
-    s.unreplied = 0;
-    s.silentUntil = 0;
-    if (s.state === 'silent') s.state = 'stable';
-  }
-
-  status(targets = this.getTargets().length): ProactiveStatus {
-    const perAddr: ProactiveStatus['perAddr'] = {};
-    for (const [addr, s] of this.states) {
-      perAddr[addr] = { state: s.state, unreplied: s.unreplied, silentUntil: s.silentUntil, lastSent: s.lastSent };
-    }
-    return {
-      enabled: this.cfg.enabled,
-      runState: this.runState,
-      dailyCount: this.dailyCount,
-      dailyQuota: this.cfg.dailyQuota,
-      targets,
-      recent: this.recent.slice(-10),
-      perAddr,
-    };
-  }
-
-  /** 手动触发一次主动说话（工具用）。 */
-  async trigger(address?: string): Promise<string> {
-    if (!this.cfg.enabled) return '主动说话未开启。';
-    const targets = this.getTargets();
-    let pick: ProactiveTarget | undefined;
-    if (address) pick = targets.find((t) => t.address === address);
-    if (!pick) pick = this.pickRandom(targets);
-    if (!pick) return '当前没有可主动说话的监听会话（检查 groups/privates 与 mode）。';
-    const ok = await this.emit(pick, true);
-    return ok ? `已向 ${pick.label} 主动发送一条消息。` : '本次生成失败（未拿到模型文本），未发送。';
-  }
-
-  private async tick(): Promise<void> {
-    if (!this.cfg.enabled) return;
-    if (this.isPaused?.()) return;
-    // 作息：睡眠段不主动冒泡，并在时段切换时主动播报（去睡/醒/午休）。
-    if (this.routine?.enabled) {
-      const seg = routineSegment(this.routine);
-      if (seg !== this.lastRoutineSegment) {
-        if (this.lastRoutineSegment !== undefined) await this.announceRoutine(this.lastRoutineSegment, seg);
-        this.lastRoutineSegment = seg;
-        this.save();
-      }
-      if (seg === 'sleep') {
-        this.runState = '稳定';
-        return; // 睡眠段：不主动冒泡（被找仍会被动回复，由对话逻辑处理）
-      }
-    }
-    this.rolloverDay();
-    const targets = this.getTargets();
-    if (!targets.length) {
-      this.runState = '稳定';
-      return;
-    }
-    let anyWarmup = false;
-    let anySilent = false;
-    let anyStable = false;
-    for (const t of targets) {
-      const s = this.ensure(t.address);
-      const st = this.evalState(s);
-      if (st === 'warmup') anyWarmup = true;
-      else if (st === 'silent') anySilent = true;
-      else anyStable = true;
-
-      const cooldown = t.kind === 'private' ? this.cfg.privateCooldownSec : this.cfg.groupCooldownSec;
-      if (st === 'silent') continue;
-      if (this.cfg.dailyQuota > 0 && this.dailyCount >= this.cfg.dailyQuota) continue;
-      if (Date.now() - s.lastSent < cooldown * 1000) continue;
-
-      let p: number;
-      if (st === 'warmup') {
-        // 暖场保证至少发一条；其余按高概率
-        p = this.firstMessageSent ? this.cfg.warmupChance : 1;
-      } else {
-        p = this.cfg.stableChancePerTick;
-      }
-      if (Math.random() < p) {
-        await this.emit(t, false);
-      }
-    }
-    // 汇总运行态（用于 badge）
-    this.runState = anyWarmup ? '暖场' : anySilent ? '静默' : '稳定';
-  }
-
-  private async emit(t: ProactiveTarget, forced: boolean): Promise<boolean> {
-    const prompt = this.buildUserPrompt(t, forced);
-    const system = this.systemPromptFor ? this.systemPromptFor(t) : this.cfg.systemPrompt;
-    const text = await this.generate([
-      { role: 'system', content: system },
-      { role: 'user', content: prompt },
-    ]);
-    if (!text || !text.trim()) {
-      this.log.warn('主动消息生成失败', { address: t.address });
-      return false;
-    }
-    const clean = text.trim();
-    // 内容去重：最近若干条里出现过则跳过（除非强制触发）
-    if (!forced && this.recent.includes(clean)) {
-      this.log.info('主动消息命中去重，跳过', { address: t.address });
-      return false;
-    }
-    // 话题相似度：与近期已发内容过于相似则跳过（除非强制触发），防同一话题反复换汤不换药造成死循环
-    if (!forced && this.cfg.topicSimilarity > 0) {
-      const maxSim = this.recent.reduce((m, r) => Math.max(m, this.similarity(clean, r)), 0);
-      if (maxSim > this.cfg.topicSimilarity) {
-        this.log.info('主动消息与近期话题过于相似，跳过', { address: t.address, similarity: maxSim.toFixed(2) });
-        this.pushRecent(clean);
-        return false;
-      }
-    }
-    const res = await this.send(t.address, clean);
-    const s = this.ensure(t.address);
-    s.lastSent = Date.now();
-    s.unreplied += 1;
-    if (s.state === 'warmup' && !this.firstMessageSent) this.firstMessageSent = true;
-    this.pushRecent(clean);
-    this.dailyCount += 1;
+    if (s) s.unreplied = 0;
     this.save();
-    this.log.info('已主动发送', { address: t.address, label: t.label, unreplied: s.unreplied, res: res.slice(0, 40) });
-    return true;
   }
 
-  private evalState(s: AddrState): 'warmup' | 'stable' | 'silent' {
-    const now = Date.now();
-    if (s.silentUntil && now < s.silentUntil) {
-      s.state = 'silent';
-      return 'silent';
-    }
-    if (s.silentUntil && now >= s.silentUntil) {
-      s.silentUntil = 0;
-      s.unreplied = 0;
-    }
-    if (s.unreplied >= this.cfg.unrepliedThreshold) {
-      s.state = 'silent';
-      s.silentUntil = now + this.cfg.silentHours * 3600_000;
-      this.log.info('会话连续未回复，进入静默', { firstSeen: s.firstSeen, until: new Date(s.silentUntil).toISOString() });
-      return 'silent';
-    }
-    const warmupMs = this.cfg.warmupMin * 60_000;
-    s.state = now - s.firstSeen < warmupMs ? 'warmup' : 'stable';
-    return s.state;
+  private now(): number {
+    return Date.now();
   }
 
-  private buildUserPrompt(t: ProactiveTarget, forced: boolean): string {
-    const now = new Date();
-    const hh = String(now.getHours()).padStart(2, '0');
-    const mm = String(now.getMinutes()).padStart(2, '0');
-    const who = this.cfg.withNickname
-      ? (t.kind === 'private' ? `私聊「${t.label}」` : `群「${t.label}」`)
-      : (t.kind === 'private' ? '你正在私聊的对象' : '你正在群聊里的对象');
-    const hint = forced ? '（这是被手动触发的主动发言，务必说点有意思的）' : '';
-    const avoid = this.recent.length ? `\n不要和之前说过的内容重复：\n- ${this.recent.slice(-5).join('\n- ')}` : '';
-    // 作息提示：午休段让主动冒泡更简短自然（睡眠段已在 tick 里被拦下，不会走到这里）。
-    let routineNote = '';
-    if (this.routine?.enabled && routineSegment(this.routine) === 'lazy') {
-      routineNote = `\n（当前是${this.selfName}的午休/打盹时段，简短点更自然，别太耗能。）`;
-    }
-    return `现在是 ${hh}:${mm}。你要主动向${who}说一句话（闲聊/关心/抛个话题都行，别太生硬，也别太长，一两句即可）。${hint}${avoid}${routineNote}\n\n注意：只聊系统提示里「真实对话」里出现过的事；如果没什么可接的，就泛泛关心/问候，或返回空（什么都不说）。绝不要编造没发生过的事件或细节。`;
+  private hhmm(): string {
+    const d = new Date();
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   }
 
-  /** 时段切换时，向所有可主动说话的会话播报一句（去睡/醒/午休）。文案由 LLM 现场生成（带记忆），每次说法不固定；生成失败才回退到配置里的固定文案。 */
-  private async announceRoutine(prev: 'sleep' | 'lazy' | 'active', seg: 'sleep' | 'lazy' | 'active'): Promise<void> {
-    // 确定切换场景与兜底文案（兜底仅在 LLM 生成失败时使用）。
-    let fallback = '';
-    let scene = '';
-    if (seg === 'sleep') { fallback = this.routine!.greetSleep; scene = '要去睡觉'; }
-    else if (seg === 'lazy') { fallback = this.routine!.greetLazy; scene = '要去午休/打盹'; }
-    else if (seg === 'active' && prev === 'sleep') { fallback = this.routine!.greetWake; scene = '刚睡醒起床'; }
-    else return; // 其它切换（如 lazy→active）不播报
-
-    for (const t of this.getTargets()) {
-      const system = this.systemPromptFor ? this.systemPromptFor(t) : this.cfg.systemPrompt;
-      const userPrompt =
-        `【作息播报·${scene}】现在是我作息时段切换的时刻（从「${prev}」切到「${seg}」）。` +
-        `请直接用你自己的口吻、自然地说一句这种场景下的话（比如${scene}时的随口感慨或碎碎念），一两句即可，别太长别太正式。` +
-        `每次可以换种说法，不要每次都一模一样，也不要念固定套话。不要加「在吗」、不要客服腔。`;
-      let line = '';
-      try {
-        const gen = await this.generate([{ role: 'system', content: system }, { role: 'user', content: userPrompt }]);
-        line = (gen ?? '').trim();
-      } catch (e) {
-        this.log.warn('作息播报生成失败，回退固定文案', { address: t.address, err: String(e) });
-      }
-      if (!line) line = (fallback ?? '').trim();
-      if (!line) continue;
-      try {
-        await this.send(t.address, line);
-      } catch (e) {
-        this.log.warn('作息播报发送失败', { address: t.address, err: String(e) });
-      }
+  private isDayRolled(): boolean {
+    const d = new Date().toISOString().slice(0, 10);
+    if (d !== this.day) {
+      this.day = d;
+      this.dailyCount = 0;
+      return true;
     }
-    this.log.info('作息时段切换播报', { from: prev, to: seg });
+    return false;
   }
 
-  private ensure(address: string): AddrState {
+  private label(t: ProactiveTarget): string {
+    return t.kind === 'group' ? `群「${t.name}」` : `私聊 ${t.name || (t as ActivePrivate).qq}`;
+  }
+
+  private ensure(address: string): State {
     let s = this.states.get(address);
     if (!s) {
-      s = { firstSeen: Date.now(), lastSent: 0, unreplied: 0, silentUntil: 0, state: 'warmup' };
+      s = { lastSent: 0, unreplied: 0, firstMessageSent: false };
       this.states.set(address, s);
-    } else if (Date.now() - s.firstSeen > 6 * 3600_000) {
-      // 距上次启动超过 6 小时，重新暖场，保证本次进程至少主动冒泡一条
-      s.firstSeen = Date.now();
     }
     return s;
   }
 
-  private pickRandom(targets: ProactiveTarget[]): ProactiveTarget | undefined {
-    if (!targets.length) return undefined;
-    return targets[Math.floor(Math.random() * targets.length)];
-  }
-
   private pushRecent(text: string): void {
     this.recent.push(text);
-    const cap = Math.max(1, this.cfg.dedupWindow);
+    const cap = Math.max(1, this.cfg.dedupWindow || 10);
     while (this.recent.length > cap) this.recent.shift();
   }
 
-  /** 字符二元组 Jaccard 相似度（0~1），忽略空白与大小写，用于话题换汤不换药的近似去重。 */
-  private similarity(a: string, b: string): number {
-    const ba = this.bigrams(a);
-    const bb = this.bigrams(b);
-    if (!ba.size || !bb.size) return 0;
-    let inter = 0;
-    for (const g of ba) if (bb.has(g)) inter++;
-    return inter / (ba.size + bb.size - inter);
-  }
-  private bigrams(s: string): Set<string> {
-    const t = s.replace(/\s+/g, '').toLowerCase();
-    const set = new Set<string>();
-    for (let i = 0; i < t.length - 1; i++) set.add(t.slice(i, i + 2));
-    return set;
+  /** 构造交给主模型的"主动说话"提示（不再自己生成文本）。 */
+  private buildNudge(t: ProactiveTarget, forced: boolean): string {
+    const who = this.cfg.withNickname ? `（你在和 ${this.label(t)} 说话）` : '';
+    const hint = forced ? '（这是被手动触发的主动说话，请务必说点有意思的。）' : '';
+    const lazy = this.routine.isLunchBreak() || this.routine.isSleep();
+    const lazyNote = lazy ? '（当前是午休/睡眠时段，简短随意点就行。）' : '';
+    return (
+      `你现在决定主动向 ${this.label(t)} 说一句话（这是主动冒泡，不是回复）。` +
+      `${who}聊点自然轻松的：关心一下、抛个小话题、分享当下心情或碎碎念都行。` +
+      `一两句就够，别太长太正式，别客服腔，也别每条都问"在吗/吃了吗"。` +
+      `只聊你们真实对话里出现过的事；没什么可接的就泛泛关心/问候。绝不要编造没发生过的事件或细节。` +
+      `${hint}${lazyNote}`
+    );
   }
 
-  private rolloverDay(): void {
-    const today = startOfDay();
-    if (today !== this.dayStart) {
-      this.dayStart = today;
-      this.dailyCount = 0;
+  private canSpeak(t: ProactiveTarget): boolean {
+    if (!this.cfg.enabled) return false;
+    this.isDayRolled();
+    const now = this.now();
+    const s = this.ensure(t.address);
+    const cd = t.kind === 'group' ? this.cfg.groupCooldownSec : this.cfg.privateCooldownSec;
+    if (now - s.lastSent < cd * 1000) return false;
+    if (s.unreplied >= this.cfg.unrepliedThreshold) return false;
+    if (this.cfg.dailyQuota > 0 && this.dailyCount >= this.cfg.dailyQuota) return false;
+    return true;
+  }
+
+  private pick(): ProactiveTarget | null {
+    const targets = this.getTargets().filter((t) => {
+      if (this.cfg.mode === 'private') return t.kind === 'private';
+      if (this.cfg.mode === 'group') return t.kind === 'group';
+      return true;
+    });
+    if (!targets.length) return null;
+    const now = this.now();
+    const scored = targets.map((t) => {
+      const s = this.ensure(t.address);
+      const age = now - s.lastSent;
+      const cd = t.kind === 'group' ? this.cfg.groupCooldownSec : this.cfg.privateCooldownSec;
+      const warm = s.state === 'warmup' && !this.firstMessageSent(t);
+      const p = warm ? this.cfg.warmupChance : this.cfg.stableChancePerTick;
+      return { t, score: Math.min(1, age / (cd * 1000)) * p + (s.unreplied > 0 ? 0.15 : 0) };
+    });
+    // 按分数随机选一个（偏向冷却久 + 未回复）
+    scored.sort((a, b) => b.score - a.score);
+    const r = Math.random();
+    let acc = 0;
+    for (const x of scored) {
+      acc += x.score;
+      if (r < acc) return x.t;
     }
+    return scored[0]?.t ?? null;
+  }
+
+  private firstMessageSent(address: string): boolean {
+    return this.ensure(address).firstMessageSent;
+  }
+
+  private async tick(): Promise<void> {
+    if (!this.cfg.enabled) return;
+    // 作息：睡眠段不主动冒泡，并在时段切换时主动播报（去睡/醒/午休）。
+    if (this.routine.enabled) {
+      const seg = routineSegment(this.routine) as 'sleep' | 'lazy' | 'active';
+      if (seg !== this.lastRoutineSegment) {
+        if (this.lastRoutineSegment) await this.announceRoutine(this.lastRoutineSegment, seg);
+        this.lastRoutineSegment = seg;
+        this.save();
+      }
+      if (seg === 'sleep') return; // 睡眠段：不主动冒泡（被找仍会被动回复）
+    }
+    this.isDayRolled();
+    if (this.cfg.dailyQuota > 0 && this.dailyCount >= this.cfg.dailyQuota) return;
+    const chance = this.anyFirstMessageSent() ? this.cfg.stableChancePerTick : this.cfg.warmupChance;
+    if (Math.random() > chance) return;
+    const target = this.pick();
+    if (!target) return;
+    if (!this.canSpeak(target)) return;
+    this.emit(target, false);
+  }
+
+  private anyFirstMessageSent(): boolean {
+    for (const s of this.states.values()) if (s.firstMessageSent) return true;
+    return false;
+  }
+
+  /** 主动说话（事件驱动）：交由主模型生成并发送。返回是否发出了请求。 */
+  private emit(t: ProactiveTarget, forced: boolean): boolean {
+    const s = this.ensure(t.address);
+    s.lastSent = this.now();
+    s.unreplied += 1;
+    if (s.state === 'warmup' && !this.firstMessageSent(t.address)) s.firstMessageSent = true;
+    this.dailyCount += 1;
+    this.pushRecent(`[${this.hhmm()}] 主动→${this.label(t)}`);
+    this.save();
+    const nudge = this.buildNudge(t, forced);
+    this.requestSpeech(t, nudge, true);
+    this.log.info('已请求主模型主动发送', { address: t.address });
+    return true;
+  }
+
+  /** 时段切换时，向所有可主动说话的会话播报一句（事件驱动：主模型经 qq_send 说，不强制）。 */
+  announceRoutine(prev: string, seg: 'sleep' | 'lazy' | 'active'): void {
+    let scene: 'sleep' | 'noon' | 'wake' | '' = '';
+    let fallback = '';
+    if (seg === 'sleep') { scene = 'sleep'; fallback = this.routine.greetSleep; }
+    else if (seg === 'lazy') { scene = 'noon'; fallback = this.routine.greetLazy; }
+    else if (seg === 'active' && prev === 'sleep') { scene = 'wake'; fallback = this.routine.greetWake; }
+    else return; // 其它切换（如 lazy→active 午休结束）不播报
+    const targets = this.getTargets().filter((t) => {
+      if (this.cfg.mode === 'private') return t.kind === 'private';
+      if (this.cfg.mode === 'group') return t.kind === 'group';
+      return true;
+    });
+    for (const t of targets) {
+      const sceneText = scene === 'sleep' ? '去睡觉' : scene === 'noon' ? '去午休/打盹' : '刚睡醒起床';
+      const nudge =
+        `【作息播报·${sceneText}】现在是我作息时段切换的时刻。` +
+        `请用你自己的口吻、自然地说一句这种场景下的话（一两句，别太长别太正式，别客服腔，不要加"在吗"）。` +
+        `每次可以换种说法，不要念固定套话。` +
+        (fallback ? `（如果不知道说什么，可以说：「${fallback}」）` : '如果你觉得没什么好说的，也可以不发。');
+      this.requestSpeech(t, nudge, false);
+    }
+    this.log.info('作息时段切换播报', { from: prev, to: seg });
+  }
+
+  trigger(target?: ProactiveTarget): string {
+    const t = target ?? this.pick();
+    if (!t) return '（没有可选的目标会话，或当前不满足发言条件）';
+    if (!this.canSpeak(t)) return `（${this.label(t)} 当前不满足发言条件/冷却/配额）`;
+    this.emit(t, true);
+    return `已请主模型生成并向 ${this.label(t)} 发送一条主动消息（内容由主模型决定）。`;
+  }
+
+  status(): { enabled: boolean; dailyCount: number; quota: number; recent: string[]; targets: { address: string; kind: string }[] } {
+    return {
+      enabled: this.cfg.enabled,
+      dailyCount: this.dailyCount,
+      quota: this.cfg.dailyQuota,
+      recent: this.recent.slice(-8),
+      targets: this.getTargets().map((t) => ({ address: t.address, kind: t.kind })),
+    };
   }
 
   private load(): void {
-    if (!this.stateFile || !existsSync(this.stateFile)) return;
     try {
-      const raw = JSON.parse(readFileSync(this.stateFile, 'utf8')) as {
-        states?: Record<string, AddrState>;
-        recent?: string[];
-        dailyCount?: number;
-        dayStart?: number;
-        firstMessageSent?: boolean;
-        lastRoutineSegment?: 'sleep' | 'lazy' | 'active';
-      };
-      for (const [k, v] of Object.entries(raw.states ?? {})) this.states.set(k, v);
-      this.recent = Array.isArray(raw.recent) ? raw.recent : [];
-      this.dailyCount = typeof raw.dailyCount === 'number' ? raw.dailyCount : 0;
-      this.dayStart = typeof raw.dayStart === 'number' ? raw.dayStart : startOfDay();
-      this.firstMessageSent = !!raw.firstMessageSent;
-      this.lastRoutineSegment = raw.lastRoutineSegment;
-    } catch {
-      /* 忽略损坏的状态文件 */
+      // state 持久化（lastSent/unreplied/firstMessageSent/dailyCount/day）保留，便于冷却与配额判断
+      const file = path.join(this.dataDir, this.scheduleKey);
+      if (fs.existsSync(file)) {
+        const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+        if (raw.states) for (const [k, v] of Object.entries(raw.states)) this.states.set(k, v as State);
+        if (typeof raw.dailyCount === 'number') this.dailyCount = raw.dailyCount;
+        if (typeof raw.day === 'string') this.day = raw.day;
+        if (typeof raw.lastRoutineSegment === 'string') this.lastRoutineSegment = raw.lastRoutineSegment as typeof this.lastRoutineSegment;
+      }
+    } catch (e) {
+      this.log.warn('load failed', e);
     }
   }
 
   private save(): void {
-    if (!this.stateFile) return;
     try {
-      const obj = {
-        states: Object.fromEntries(this.states),
-        recent: this.recent,
-        dailyCount: this.dailyCount,
-        dayStart: this.dayStart,
-        firstMessageSent: this.firstMessageSent,
-        lastRoutineSegment: this.lastRoutineSegment,
-      };
-      writeFileSync(this.stateFile, JSON.stringify(obj), 'utf8');
-    } catch {
-      /* 忽略写入失败 */
+      const file = path.join(this.dataDir, this.scheduleKey);
+      fs.mkdirSync(this.dataDir, { recursive: true });
+      fs.writeFileSync(
+        file,
+        JSON.stringify({ states: Object.fromEntries(this.states), dailyCount: this.dailyCount, day: this.day, lastRoutineSegment: this.lastRoutineSegment }, null, 2),
+        'utf8',
+      );
+    } catch (e) {
+      this.log.warn('save failed', e);
     }
   }
-}
-
-function startOfDay(): number {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
 }
