@@ -6,8 +6,8 @@
 // 触发一轮主模型回合，主模型输出（或主动调 qq_send）即送达该会话。
 // 这样主模型决定「说什么」，语气/分寸与正常对话一致，且不需要单独的模型配置。
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type { Logger } from 'cortico/core/types.ts';
 import type { ActiveGroup, ActivePrivate } from './world.ts';
 import type { ProactiveConfig } from './config.ts';
@@ -58,7 +58,7 @@ export class Routine {
   }
 }
 
-function inRange(start: string, end: string): boolean {
+export function inRange(start: string, end: string): boolean {
   const now = new Date();
   const cur = now.getHours() * 60 + now.getMinutes();
   const [sh, sm] = start.split(':').map(Number);
@@ -187,7 +187,8 @@ export class ProactiveSpeaker {
   private buildNudge(t: ProactiveTarget, forced: boolean): string {
     const who = this.cfg.withNickname ? `（你在和 ${this.label(t)} 说话）` : '';
     const hint = forced ? '（这是被手动触发的主动说话，请务必说点有意思的。）' : '';
-    const lazy = this.routine.isLunchBreak() || this.routine.isSleep();
+    const r = this.routine;
+    const lazy = !!(r?.enabled && (inRange(r.noonStart, r.noonEnd) || inRange(r.silentStart, r.silentEnd)));
     const lazyNote = lazy ? '（当前是午休/睡眠时段，简短随意点就行。）' : '';
     return (
       `你现在决定主动向 ${this.label(t)} 说一句话（这是主动冒泡，不是回复）。` +
@@ -245,7 +246,11 @@ export class ProactiveSpeaker {
     if (!this.cfg.enabled) return;
     // 作息：睡眠段不主动冒泡，并在时段切换时主动播报（去睡/醒/午休）。
     if (this.routine.enabled) {
-      const seg = routineSegment(this.routine) as 'sleep' | 'lazy' | 'active';
+      const r = this.routine;
+      const seg: 'sleep' | 'lazy' | 'active' =
+        inRange(r.silentStart, r.silentEnd) ? 'sleep'
+        : inRange(r.noonStart, r.noonEnd) ? 'lazy'
+        : 'active';
       if (seg !== this.lastRoutineSegment) {
         if (this.lastRoutineSegment) await this.announceRoutine(this.lastRoutineSegment, seg);
         this.lastRoutineSegment = seg;
@@ -287,9 +292,9 @@ export class ProactiveSpeaker {
   announceRoutine(prev: string, seg: 'sleep' | 'lazy' | 'active'): void {
     let scene: 'sleep' | 'noon' | 'wake' | '' = '';
     let fallback = '';
-    if (seg === 'sleep') { scene = 'sleep'; fallback = this.routine.greetSleep; }
-    else if (seg === 'lazy') { scene = 'noon'; fallback = this.routine.greetLazy; }
-    else if (seg === 'active' && prev === 'sleep') { scene = 'wake'; fallback = this.routine.greetWake; }
+    if (seg === 'sleep') { scene = 'sleep'; fallback = new Routine(r, this.log).announceText('sleep'); }
+    else if (seg === 'lazy') { scene = 'noon'; fallback = new Routine(r, this.log).announceText('noon'); }
+    else if (seg === 'active' && prev === 'sleep') { scene = 'wake'; fallback = new Routine(r, this.log).announceText('wake'); }
     else return; // 其它切换（如 lazy→active 午休结束）不播报
     const targets = this.getTargets().filter((t) => {
       if (this.cfg.mode === 'private') return t.kind === 'private';
@@ -327,6 +332,7 @@ export class ProactiveSpeaker {
   }
 
   private load(): void {
+    if (!this.dataDir) return;
     try {
       // state 持久化（lastSent/unreplied/firstMessageSent/dailyCount/day）保留，便于冷却与配额判断
       const file = path.join(this.dataDir, this.scheduleKey);
@@ -343,6 +349,7 @@ export class ProactiveSpeaker {
   }
 
   private save(): void {
+    if (!this.dataDir) return;
     try {
       const file = path.join(this.dataDir, this.scheduleKey);
       fs.mkdirSync(this.dataDir, { recursive: true });
@@ -352,7 +359,7 @@ export class ProactiveSpeaker {
         'utf8',
       );
     } catch (e) {
-      this.log.warn('save failed', e);
+      this.log.warn('save failed', { err: String(e), file: path.join(this.dataDir, this.scheduleKey) });
     }
   }
 }

@@ -4,6 +4,14 @@
 
 规则：每版本一个二级标题，标题里的第一个版本号即为本节版本。
 
+## 0.6.5
+
+修复作息/主动说话模块（proactive.ts + world.ts）三处运行期崩溃与持久化失效（用户 2026-10-21 bug 报告确认，0.6.0→0.6.4 一直存在）：
+- **Bug 1（主循环崩溃）**：`world.ts` 的 `routineSegmentText()` 调了未导入的 `routineSegment()`，上下文交接（handoff）时抛 `ReferenceError: routineSegment is not defined` 拖垮主循环。改为直接按 `inRange` 计算真实作息相位（sleep/lazy/active），既消除崩溃，又修复「返回值被错当相位、永远走活跃分支」的逻辑错误。
+- **Bug 2（主动说话整条失效）**：`proactive.ts` 对 `RoutineConfig`（纯配置）调 `this.routine.isLunchBreak()/isSleep()`（实例方法），每 2 分钟 tick 抛 `TypeError`。改为用配置字段 + `inRange` 直接判定午休/睡眠；tick 相位判断同理改用真实相位。
+- **Bug 3（save failed ×106）**：`proactive.ts` 用了 `fs.*`/`path.*` 命名空间但只按需导入了 `existsSync/readFileSync/writeFileSync/join`，`fs` 与 `path` 根本未导入 → 每个 `load()/save()` 抛 `ReferenceError`。改为 `import * as fs` / `import * as path`；并给 `load/save` 加 `dataDir` 空守卫（没有可写目录时静默跳过，不再每 30s 刷 "save failed"），失败日志补全 `err` 与完整文件路径。
+- 附带修正 `announceRoutine` 引用了 `RoutineConfig` 上不存在的 `greetSleep/greetLazy/greetWake`（始终 undefined），改为用 `Routine.announceText(scene)` 兜底，作息切换播报文案恢复正常。
+
 ## 0.6.4
 
 `qq_forward_by_id` 改为「合并成一张卡片」转发（落实用户诉求）：多条消息合成**一张**合并转发卡片发出，而不是一条条发。

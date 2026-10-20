@@ -22,7 +22,7 @@ import { type Conv, type OneBotMessage, type OneBotSegment, type QQIdentity, typ
 import { Vision } from './vision.ts';
 import { StickerStore } from './sticker.ts';
 import { ReminderStore, parseWhen, formatWhen } from './reminder.ts';
-import { ProactiveSpeaker, type ProactiveTarget } from './proactive.ts';
+import { ProactiveSpeaker, type ProactiveTarget, inRange } from './proactive.ts';
 import { makeHistoryTools } from './history-tools.ts';
 import { Notebook } from './notebook.ts';
 import { festivalText } from './festival.ts';
@@ -577,12 +577,16 @@ export class QQWorld implements World {
   private routineSegmentText(): string {
     const r = this.config.routine;
     if (!r?.enabled) return '';
-    const seg = routineSegment(r);
+    const phase = inRange(r.silentStart, r.silentEnd)
+      ? 'sleep'
+      : inRange(r.noonStart, r.noonEnd)
+      ? 'lazy'
+      : 'active';
     const self = this.resolveSelfRef();
     const text =
-      seg === 'sleep'
+      phase === 'sleep'
         ? `【当前作息】睡眠时段：${self}在休息，不会主动找人说话（但被找仍会回），语气可以带点困、简短些。`
-        : seg === 'lazy'
+        : phase === 'lazy'
         ? `【当前作息】午休/打盹时段：${self}在摸鱼歇着，聊可以但别太耗能。`
         : `【当前作息】活跃时段：${self}精神着呢。`;
     return text;
