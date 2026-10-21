@@ -316,6 +316,7 @@ export class QQWorld implements World {
       this.dataDir,
       (name) => this.resolveSecret(name) ?? '',
       (usage, model) => this.host?.reportUsage(usage, { model, label: '表情包标注' }),
+      (bytes, ext) => this.pushStickerToQQFavorites(bytes, ext),
     );
     this.syncConfigRoster();
     this.driver = this.createDriver();
@@ -905,6 +906,28 @@ export class QQWorld implements World {
 
   private convLabel(address: string): string {
     return this.convs.get(address)?.label ?? address;
+  }
+
+  /**
+   * 把一张表情图加入 QQ 的「收藏表情」（custom face）。需协议端支持 add_custom_face（如 SnowLuma）。
+   * 用 base64:// 直传，避免依赖协议端进程读取本机磁盘路径。返回 emoji_id 或 null（失败/未开启/无驱动）。
+   */
+  private async pushStickerToQQFavorites(bytes: Uint8Array, ext: string): Promise<string | null> {
+    if (!this.config.sticker.addToQQFavorites) return null;
+    if (!this.driver) return null;
+    const base64 = Buffer.from(bytes).toString('base64');
+    try {
+      const res = (await this.driver.callApi('add_custom_face', { file: `base64://${base64}` })) as
+        | { emoji_id?: string; data?: { emoji_id?: string } }
+        | undefined;
+      const eid = res?.emoji_id ?? res?.data?.emoji_id ?? null;
+      if (eid) this.log.info('已加入 QQ 收藏表情', { emojiId: eid, ext });
+      else this.log.warn('add_custom_face 未返回 emoji_id', { res });
+      return eid ?? null;
+    } catch (e) {
+      this.log.warn('加入 QQ 收藏表情失败（协议端可能不支持 add_custom_face，或 QQ 收藏表情已达上限）', { err: String(e), ext });
+      return null;
+    }
   }
 
   /** 私聊对方的真名：好友备注 > 好友昵称 > 已知昵称 > 私聊<QQ>。 */
@@ -2174,7 +2197,35 @@ export class QQWorld implements World {
             `- [表情包:${m.file}] ${m.label}（情感:${m.emotion} / 用处:${m.usage}${m.tag ? ' / 标签:' + m.tag : ''} / 出现${m.count}次）`,
         );
         const byEmo = Object.entries(s.byEmotion).map(([k, v]) => `${k}:${v}`).join('，') || '无';
-        return `已收藏表情包共 ${s.total} 张；情感分布：${byEmo}\n最近：\n${lines.join('\n') || '（暂无）'}`;
+        return `已收藏表情包共 ${s.total} 张（其中已同步到 QQ 收藏表情 ${s.synced} 张）；情感分布：${byEmo}\n最近：\n${lines.join('\n') || '（暂无）'}`;
+      },
+    };
+
+    const stickerToFavorites: ToolDef = {
+      name: 'qq_sticker_to_favorites',
+      tags: ['speak'],
+      barrierAfter: true,
+      description:
+        '把已收藏但还没进 QQ 收藏表情的表情包，批量补推到登录账号的 QQ「收藏表情」（custom face），让你能在 QQ 客户端里直接看到/使用。\n' +
+        '【前提】设置里「同步到 QQ 收藏表情」必须开启（否则本工具会提示先开启）。协议端须支持 add_custom_face（如 SnowLuma），不支持会如实报错。\n' +
+        '【用途】一般用于：开启开关前就已经攒下的一批历史表情，想一次性刷进 QQ。新收藏的表情在收藏时已经自动同步，无需再调本工具。\n' +
+        '注意 QQ 收藏表情有数量上限，超出部分会失败并在结果里告知，可删掉一些 QQ 收藏表情后重试。',
+      parameters: {
+        type: 'object',
+        properties: { limit: { type: 'number', description: '本次最多补推多少张，默认 50，最大 200。批量失败或量大时可分多次调。' } },
+        required: [],
+      },
+      handler: async (args) => {
+        if (!this.config.sticker.addToQQFavorites) {
+          return '请先在设置里开启「同步到 QQ 收藏表情」（worlds.qqbot.sticker.addToQQFavorites）再调本工具。';
+        }
+        if (!this.stickers) return '表情包收藏未启用，无法同步。';
+        if (!this.driver) return '协议端未连接，无法同步到 QQ。';
+        const limit = typeof args.limit === 'number' && Number.isFinite(args.limit) ? Math.max(1, Math.min(200, args.limit)) : 50;
+        const r = await this.stickers.favoriteSync(limit);
+        let msg = `本次检查 ${r.checked} 张、成功加入 QQ 收藏 ${r.added} 张、失败 ${r.failed} 张（已同步过的跳过 ${r.skipped} 张）。`;
+        if (r.failed > 0) msg += '\n失败的通常是 QQ 收藏表情数量已达上限或图片格式不被接受；删掉部分 QQ 收藏表情后重试即可。';
+        return msg;
       },
     };
 
@@ -2825,7 +2876,7 @@ export class QQWorld implements World {
       },
     };
 
-    const tools: ToolDef[] = [forwardById, send, confirm, viewImage, stickerStats, proactiveStatus, proactiveTrigger, qzonePost, qzoneDelete, qzoneReply, qzoneFeeds, qzoneStatus, poke, reminderAdd, reminderList, reminderCancel, noteSave, noteList, noteGet, noteForget, adminRecall, adminAtAll, adminNotice, adminJoinList, adminJoinApprove, adminJoinReject, adminTitle, adminBan, adminBanAll, adminKick, ...makeHistoryTools({
+    const tools: ToolDef[] = [forwardById, send, confirm, viewImage, stickerStats, stickerToFavorites, proactiveStatus, proactiveTrigger, qzonePost, qzoneDelete, qzoneReply, qzoneFeeds, qzoneStatus, poke, reminderAdd, reminderList, reminderCancel, noteSave, noteList, noteGet, noteForget, adminRecall, adminAtAll, adminNotice, adminJoinList, adminJoinApprove, adminJoinReject, adminTitle, adminBan, adminBanAll, adminKick, ...makeHistoryTools({
       getHost: () => this.host,
       sourceId: SOURCE,
       timezone: this.config.timezone,

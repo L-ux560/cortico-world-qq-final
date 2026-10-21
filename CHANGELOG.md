@@ -4,6 +4,14 @@
 
 规则：每版本一个二级标题，标题里的第一个版本号即为本节版本。
 
+## 0.6.6
+
+新增「表情包同步到 QQ 收藏表情」能力（用户诉求：在 SnowLuma 拉起的 QQ 客户端里也能看到 bot 收藏的表情包）：
+- 新增设置 **`worlds.qqbot.sticker.addToQQFavorites`**（默认关闭，控制台标题「同步到 QQ 收藏表情」）。开启后，bot 每收藏一张表情包，会同时调协议端的 `add_custom_face` 把同一张图加入登录账号的 QQ「收藏表情」（custom face），你能在 QQ 客户端的收藏表情面板里直接看到/使用；返回的 `emoji_id` 记入表情元数据。
+- 实现：在 `StickerStore` 落盘后调用注入的 `addToFavorites` 回调（由 world 经 `driver.callApi('add_custom_face', { file: 'base64://...' })` 实现，用 base64 直传，不依赖协议端进程读本机磁盘）；`StickerMeta` 新增 `emojiId` 字段持久化。
+- 新增工具 **`qq_sticker_to_favorites`**：把开启开关前就已攒下、尚未进 QQ 收藏表情的历史表情批量补推（带 `limit` 分批）。`qq_sticker_stats` 统计里增加「已同步到 QQ 收藏表情」张数。
+- 兼容性/健壮性：依赖协议端支持 `add_custom_face`（SnowLuma 支持；NapCat/Lagrange 等不一定有该扩展接口）。不支持时**自动降级**——图片照常存盘、可发，只是不进 QQ 收藏，不会崩溃或报错；QQ 收藏表情数量上限导致的失败仅在结果里提示，可删减后重试。
+
 ## 0.6.5
 
 修复作息/主动说话模块（proactive.ts + world.ts）三处运行期崩溃与持久化失效（用户 2026-10-21 bug 报告确认，0.6.0→0.6.4 一直存在）：

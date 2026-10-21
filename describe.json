@@ -134,6 +134,27 @@
       }
     },
     {
+      "name": "qq_sticker_to_favorites",
+      "description": "把已收藏但还没进 QQ 收藏表情的表情包，批量补推到登录账号的 QQ「收藏表情」（custom face），让你能在 QQ 客户端里直接看到/使用。\n【前提】设置里「同步到 QQ 收藏表情」必须开启（否则本工具会提示先开启）。协议端须支持 add_custom_face（如 SnowLuma），不支持会如实报错。\n【用途】一般用于：开启开关前就已经攒下的一批历史表情，想一次性刷进 QQ。新收藏的表情在收藏时已经自动同步，无需再调本工具。\n注意 QQ 收藏表情有数量上限，超出部分会失败并在结果里告知，可删掉一些 QQ 收藏表情后重试。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "number",
+            "description": "本次最多补推多少张，默认 50，最大 200。批量失败或量大时可分多次调。"
+          }
+        },
+        "required": []
+      },
+      "tags": [
+        "speak"
+      ],
+      "summary": {
+        "zh": "把已收藏的表情包批量补推进 QQ 收藏表情,让你在 QQ 里能看到。",
+        "en": "Bulk-push collected stickers into QQ's favorite stickers so you can see them in QQ."
+      }
+    },
+    {
       "name": "qq_proactive_status",
       "description": "查看主动说话调度器状态：运行态（暖场/稳定/静默）、今日已发/配额、各会话未回复与静默情况、最近主动说过的话。",
       "parameters": {

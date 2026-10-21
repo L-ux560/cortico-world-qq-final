@@ -1,0 +1,10 @@
+feat(sticker): 新增「同步到 QQ 收藏表情」(add_custom_face) 0.6.6
+
+- 新增设置 worlds.qqbot.sticker.addToQQFavorites（默认关）：开启后 bot 收藏表情时
+  同时调 add_custom_face 把图加入 QQ 收藏表情（custom face），并在元数据记 emoji_id。
+- StickerStore 落盘后调用注入的 addToFavorites 回调（world 经 driver.callApi
+  add_custom_face base64 直传）；StickerMeta 新增 emojiId。
+- 新增工具 qq_sticker_to_favorites：把历史已收藏未同步表情批量补推（带 limit 分批）；
+  qq_sticker_stats 增加「已同步到 QQ 收藏表情」张数。
+- 兼容性：协议端不支持 add_custom_face（非 SnowLuma）时自动降级（仍存盘，不进 QQ，不报错）。
+- 更新 describe.json / README / CHANGELOG。

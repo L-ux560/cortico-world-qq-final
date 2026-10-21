@@ -27,6 +27,8 @@ export interface StickerMeta {
   count: number;
   /** 出现过的会话地址列表。 */
   sources: string[];
+  /** 若已加入 QQ 收藏表情（custom face），记录其 emoji_id；缺省则未同步到 QQ。 */
+  emojiId?: string;
 }
 
 /** 视觉配置（直接复用 vision 段，标注情感/用处时调用 VLM）。 */
@@ -69,6 +71,8 @@ export class StickerStore {
     cacheHitTokens: number;
     cacheMissTokens: number;
   }, model: string) => void;
+  /** 把一张表情图加入 QQ 收藏表情（custom face）的回调，由 world 注入；返回 emoji_id 或 null。 */
+  private readonly addToFavoritesCb?: (bytes: Uint8Array, ext: string) => Promise<string | null>;
 
   constructor(
     dir: string,
@@ -84,12 +88,15 @@ export class StickerStore {
       cacheHitTokens: number;
       cacheMissTokens: number;
     }, model: string) => void,
+    /** 把一张表情图加入 QQ 收藏表情（custom face）的回调，由 world 注入；返回 emoji_id 或 null。 */
+    addToFavorites?: (bytes: Uint8Array, ext: string) => Promise<string | null>,
   ) {
     this.dir = dir;
     this.vision = vision;
     this.log = log.child('sticker');
     this.secret = secret;
     this.reportUsage = reportUsage;
+    this.addToFavoritesCb = addToFavorites;
     this.indexFile = dataDir ? join(dataDir, 'sticker-index.json') : '';
     this.load();
     this.log.info(`StickerStore init indexFile=${this.indexFile} emojiDir=${this.dir} loaded=${this.meta.size}`);
@@ -120,13 +127,51 @@ export class StickerStore {
   }
 
   /** 统计 + 最近列表，供 qq_sticker_stats 工具与控制台自查。 */
-  stats(limit = 10): { total: number; byEmotion: Record<string, number>; recent: StickerMeta[] } {
+  stats(limit = 10): { total: number; byEmotion: Record<string, number>; synced: number; recent: StickerMeta[] } {
     const byEmotion: Record<string, number> = {};
-    for (const m of this.meta.values()) byEmotion[m.emotion] = (byEmotion[m.emotion] ?? 0) + 1;
+    let synced = 0;
+    for (const m of this.meta.values()) {
+      byEmotion[m.emotion] = (byEmotion[m.emotion] ?? 0) + 1;
+      if (m.emojiId) synced++;
+    }
     const recent = [...this.meta.values()]
       .sort((a, b) => b.lastSeen - a.lastSeen)
       .slice(0, limit);
-    return { total: this.meta.size, byEmotion, recent };
+    return { total: this.meta.size, byEmotion, synced, recent };
+  }
+
+  /**
+   * 把尚未加入 QQ 收藏表情的条目（无 emojiId）批量补推到 QQ「收藏表情」。
+   * 用于开启开关前已攒下的历史表情一次性刷进 QQ。返回各计数。
+   * 无回调（未接线）时所有条目记到 skipped，不报错。
+   */
+  async favoriteSync(max = 50): Promise<{ checked: number; added: number; failed: number; skipped: number }> {
+    const r = { checked: 0, added: 0, failed: 0, skipped: 0 };
+    if (!this.addToFavoritesCb) {
+      r.skipped = this.meta.size;
+      return r;
+    }
+    let n = 0;
+    for (const m of this.meta.values()) {
+      if (n >= max) break;
+      if (m.emojiId) continue; // 已同步过
+      r.checked++;
+      n++;
+      try {
+        const buf = readFileSync(join(this.dir, m.file));
+        const eid = await this.addToFavoritesCb(buf, m.ext);
+        if (eid) {
+          m.emojiId = eid;
+          r.added++;
+        } else {
+          r.failed++;
+        }
+      } catch {
+        r.failed++;
+      }
+    }
+    if (r.added) this.save();
+    return r;
   }
 
   private pump(): void {
@@ -179,6 +224,19 @@ export class StickerStore {
       };
       this.meta.set(hash, meta);
       this.log.info('表情包已收藏', { file, label, emotion: ann.emotion, usage: ann.usage });
+      // 若开启了「同步到 QQ 收藏表情」，把同一张图加入 QQ 的 custom face（收藏表情），
+      // 返回的 emoji_id 记进元数据，便于在 QQ 客户端里直接看到/使用。失败仅告警，不影响本机收藏。
+      if (this.addToFavoritesCb) {
+        try {
+          const eid = await this.addToFavoritesCb(bytes, ext);
+          if (eid) {
+            meta.emojiId = eid;
+            this.log.info('表情包已加入 QQ 收藏表情', { file, emojiId: eid });
+          }
+        } catch (e) {
+          this.log.warn('加入 QQ 收藏表情回调异常（已忽略，仍按本机收藏处理）', { err: String(e), file });
+        }
+      }
       this.scheduleSave();
     } catch (e) {
       this.log.warn('表情包处理失败', { err: String(e), url: job.url });
