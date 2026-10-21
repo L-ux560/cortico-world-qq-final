@@ -148,185 +148,107 @@
       },
       "tags": [
         "speak"
-      ],
-      "summary": {
-        "zh": "把已收藏的表情包批量补推进 QQ 收藏表情,让你在 QQ 里能看到。",
-        "en": "Bulk-push collected stickers into QQ's favorite stickers so you can see them in QQ."
-      }
+      ]
     },
     {
-      "name": "qq_proactive_status",
-      "description": "查看主动说话调度器状态：运行态（暖场/稳定/静默）、今日已发/配额、各会话未回复与静默情况、最近主动说过的话。",
-      "parameters": {
-        "type": "object",
-        "properties": {},
-        "required": []
-      },
-      "tags": [
-        "read"
-      ],
-      "summary": {
-        "zh": "查看主动说话调度器的状态、今日配额与近期主动发言。",
-        "en": "Show the proactive-speaking scheduler state, daily quota and recent unsolicited messages."
-      }
-    },
-    {
-      "name": "qq_proactive_trigger",
-      "description": "手动触发一次主动说话：随机挑一个可主动的监听会话（或指定 address 如 private:123）发一条闲聊。用于测试主动说话调度器。",
+      "name": "qq_proactive",
+      "description": "主动说话调度器系列（用一个 action 选子功能）：status=查看调度器状态、今日配额与近期主动发言；trigger=手动触发一次主动说话（address?，留空随机），用于测试。",
       "parameters": {
         "type": "object",
         "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "status",
+              "trigger"
+            ],
+            "description": "子功能：status 查状态 / trigger 手动触发。"
+          },
           "address": {
             "type": "string",
-            "description": "可选：目标会话地址，如 private:123 / group:456；留空则随机。"
+            "description": "【trigger】可选目标会话地址，如 private:123 / group:456；留空随机。"
           }
         },
-        "required": []
+        "required": [
+          "action"
+        ]
       },
       "tags": [
+        "read",
         "speak"
       ],
       "summary": {
-        "zh": "手动触发一次主动说话,用于测试。",
-        "en": "Fire one proactive message manually, mainly for testing."
+        "zh": "主动说话调度器:查状态(status)或手动触发一次(trigger)。",
+        "en": "Proactive-speaking scheduler: check status or fire one manually."
       }
     },
     {
-      "name": "qq_qzone_post",
-      "description": "在 QQ 空间发一条动态（说说）。content 为动态正文，必须由你（主模型）显式给出——本扩展不再自动生成动态文字。内容按「最近聊天 + 你对人或事的真实看法」以第一人称写：吐槽/安利/简介/分享心情都行，自然有梗，1-3 句。可附图片（images：仅支持 http(s):// 与 base64:// 链接，出于安全考虑不支持本机文件）与 @人（ats：昵称或 QQ 号）。permission 默认 1=公开。返回 tid 供后续删除/回复。",
+      "name": "qq_qzone",
+      "description": "QQ 空间动态系列（用一个 action 选子功能）：post=发一条动态（说说，content 必填，可附图 images / @人 ats / 权限 permission）；delete=删除一条动态（tid）；reply=回复某条动态下的评论（tid+comment_id+content）；feeds=查看自己的动态列表（num）；status=查看发布器状态（开关/配额/最近动态 tid）。content 必须由你（主模型）显式给出：按“最近聊天 + 真实看法”以第一人称写，自然有梗，1-3 句；不要空泛、不要“我帮你记下了”这类托管语气。",
       "parameters": {
         "type": "object",
         "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "post",
+              "delete",
+              "reply",
+              "feeds",
+              "status"
+            ],
+            "description": "子功能：post 发动态 / delete 删动态 / reply 回评论 / feeds 列动态 / status 看状态。"
+          },
           "content": {
             "type": "string",
-            "description": "动态正文（必填）：以第一人称写，结合最近聊天与记忆发表真实看法/吐槽/简介/心情。"
+            "description": "【post】动态正文（必填）：以第一人称写，结合最近聊天与记忆发表真实看法/吐槽/简介/心情。"
           },
           "topic": {
             "type": "string",
-            "description": "可选方向提示，如「吐槽最近的天气」「介绍一下小明」。"
+            "description": "可选方向提示，如“吐槽最近的天气”“介绍一下小明”。"
           },
           "images": {
             "type": "array",
             "items": {
               "type": "string"
             },
-            "description": "附图链接数组（仅支持 http(s):// 与 base64://；出于安全考虑不支持本机文件）。"
+            "description": "【post】附图链接数组（仅支持 http(s):// 与 base64://；不支持本机文件）。"
           },
           "ats": {
             "type": "array",
             "items": {
               "type": "string"
             },
-            "description": "@的人：昵称或 QQ 号数组。"
+            "description": "【post】@的人：昵称或 QQ 号数组。"
           },
           "permission": {
             "type": "number",
-            "description": "可见权限 ugc_right，默认 1=公开。"
-          }
-        },
-        "required": [
-          "content"
-        ]
-      },
-      "tags": [
-        "speak"
-      ],
-      "summary": {
-        "zh": "在 QQ 空间发一条动态(说说)。",
-        "en": "Publish a post to the QQ Zone timeline."
-      }
-    },
-    {
-      "name": "qq_qzone_delete",
-      "description": "删除一条 QQ 空间动态。tid 来自 qq_qzone_post 的返回或 qq_qzone_status 的最近列表。",
-      "parameters": {
-        "type": "object",
-        "properties": {
+            "description": "【post】可见权限 ugc_right，默认 1=公开。"
+          },
           "tid": {
             "type": "string",
-            "description": "要删除的动态 tid。"
-          }
-        },
-        "required": [
-          "tid"
-        ]
-      },
-      "tags": [
-        "speak"
-      ],
-      "summary": {
-        "zh": "删除一条 QQ 空间动态。",
-        "en": "Delete one QQ Zone post."
-      }
-    },
-    {
-      "name": "qq_qzone_reply",
-      "description": "回复某条动态下的一条评论。tid 为动态 id，comment_id 为评论 id（来自 QQ空间评论事件或你记忆里 qq_qzone_status 的互动记录）。",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "tid": {
-            "type": "string",
-            "description": "动态 tid。"
+            "description": "【delete/reply】动态 tid（来自 post 返回或 status 最近列表）。"
           },
           "comment_id": {
             "type": "string",
-            "description": "评论 id。"
+            "description": "【reply】评论 id。"
           },
-          "content": {
-            "type": "string",
-            "description": "回复内容。"
+          "num": {
+            "type": "number",
+            "description": "【feeds】返回条数，默认 5。"
           }
         },
         "required": [
-          "tid",
-          "comment_id",
-          "content"
+          "action"
         ]
       },
       "tags": [
-        "speak"
-      ],
-      "summary": {
-        "zh": "回复某条动态下的一条评论。",
-        "en": "Reply to a comment under a QQ Zone post."
-      }
-    },
-    {
-      "name": "qq_qzone_feeds",
-      "description": "查看自己的 QQ 空间动态列表（尽力而为；依赖 NapCat 的 get_qzone_msg_list 是否支持）。",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "num": {
-            "type": "number",
-            "description": "返回条数，默认 5。"
-          }
-        },
-        "required": []
-      },
-      "tags": [
+        "speak",
         "read"
       ],
       "summary": {
-        "zh": "查看自己的 QQ 空间动态列表。",
-        "en": "List your own QQ Zone posts."
-      }
-    },
-    {
-      "name": "qq_qzone_status",
-      "description": "查看 QQ 空间动态发布器状态：是否开启、今日已发/配额、自动回复评论是否开、最近发的动态（含 tid）。",
-      "parameters": {
-        "type": "object",
-        "properties": {},
-        "required": []
-      },
-      "tags": [
-        "read"
-      ],
-      "summary": {
-        "zh": "查看空间发布器的开关、配额与最近动态(tid)。",
-        "en": "Show the Zone publisher enable flag, quota and recent posts with their tid."
+        "zh": "QQ 空间动态:发(post)/删(delete)/回评论(reply)/列动态(feeds)/看状态(status)。",
+        "en": "QQ Zone: post / delete / reply to comment / list feeds / show status."
       }
     },
     {
@@ -357,483 +279,218 @@
       }
     },
     {
-      "name": "qq_reminder_add",
-      "description": "记一个定时提醒 / 闹钟（也是记事本）。把需要以后做的事、约定、待办记下，到点会自动在该会话提醒对方。when 支持：绝对 ISO 时间（如 2026-09-24T09:30）、\"HH:MM\"（今天，已过则明天）、\"明天 9:00\"、\"in 30m\" / \"30分钟后\" / \"2小时后\" / \"3天后\"。text 是提醒内容。address 默认就是当前会话（一般不用填）；scope 可填“这是谁的事 / 相关人”等备注。",
+      "name": "qq_reminder",
+      "description": "定时提醒 / 闹钟（也是记事本）系列（用一个 action 选子功能）：add=记一个定时提醒（text+when，when 支持绝对 ISO、\"HH:MM\"、明天 9:00、in 30m/30分钟后/2小时后/3天后）；list=列出所有未触发的提醒（汇报用）；cancel=取消/删除一条提醒（id）。到点会自动在该会话提醒对方；address 默认当前会话；scope 可填备注（谁的事/相关人）。",
       "parameters": {
         "type": "object",
         "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "add",
+              "list",
+              "cancel"
+            ],
+            "description": "子功能：add 记提醒 / list 列提醒 / cancel 取消。"
+          },
           "text": {
             "type": "string",
-            "description": "要提醒的内容，例如“提醒我三点开会”“和用户约好的事：明天还书”"
+            "description": "【add】要提醒的内容，例如“提醒我三点开会”。"
           },
           "when": {
             "type": "string",
-            "description": "提醒时间，见上方描述里的格式（给一个未来的时间）"
+            "description": "【add】提醒时间，支持 ISO、HH:MM、明天 9:00、in 30m、30分钟后 等（给未来时间）。"
           },
           "address": {
             "type": "string",
-            "description": "可选，提醒发到哪个会话（group:群号 / private:QQ），默认当前会话"
+            "description": "可选，提醒发到哪个会话（group:群号 / private:QQ），默认当前会话。"
           },
           "scope": {
             "type": "string",
-            "description": "可选，备注（谁的事 / 相关人）"
-          }
-        },
-        "required": [
-          "text",
-          "when"
-        ]
-      },
-      "tags": [
-        "speak"
-      ],
-      "summary": {
-        "zh": "记一个定时提醒或闹钟,到点自动在该会话提醒。",
-        "en": "Set a timed reminder or alarm that fires back into that conversation."
-      }
-    },
-    {
-      "name": "qq_reminder_list",
-      "description": "列出当前所有未触发的提醒 / 记事（闹钟清单），用于向用户汇报“你记了这些事”。返回每条的 id、内容、时间。",
-      "parameters": {
-        "type": "object",
-        "properties": {},
-        "required": []
-      },
-      "tags": [
-        "read"
-      ],
-      "summary": {
-        "zh": "列出所有未触发的提醒/记事。",
-        "en": "List every reminder that has not fired yet."
-      }
-    },
-    {
-      "name": "qq_reminder_cancel",
-      "description": "取消 / 删除一条提醒（记事）。传要删的 id（来自 qq_reminder_list 或 add 时返回的 id）。",
-      "parameters": {
-        "type": "object",
-        "properties": {
+            "description": "可选，备注（谁的事 / 相关人）。"
+          },
           "id": {
             "type": "string",
-            "description": "要取消的提醒 id"
+            "description": "【cancel】要取消的提醒 id（来自 list 或 add 返回）。"
           }
         },
         "required": [
-          "id"
+          "action"
         ]
       },
       "tags": [
-        "speak"
+        "speak",
+        "read",
+        "write"
       ],
       "summary": {
-        "zh": "取消并删除一条提醒。",
-        "en": "Cancel and delete a reminder."
+        "zh": "定时提醒/闹钟(也是记事本):记(add)/列(list)/取消(cancel)。",
+        "en": "Timed reminder / alarm (also a notepad): add / list / cancel."
       }
     },
     {
-      "name": "qq_note_save",
-      "description": "把你想长期记住的东西写进「私人笔记本」——任何你（智能体）想记的事：对某个人的观感、一条约定、一个灵感、用户叮嘱的偏好、自己立下的小目标等。注意：若同时安装了 cortico-world-memory，请优先用它的 mem_note/mem_notes/mem_forget_note（常驻环境提示词 + 混合检索），本笔记本只落本地文件、不参与检索。text 填要记的内容（尽量具体、自包含，日后回看能懂）。",
+      "name": "qq_note",
+      "description": "智能体私人笔记本（本地 notebook.jsonl；与记忆扩展的 mem_note 功能重复）系列（用一个 action 选子功能）：save=写一条长期记忆（text，尽量具体自包含）；list=列出全部条目；get=按 id 查看一条；forget=删除一条。注意：若同时装了 cortico-world-memory，请优先用它的 mem_note/mem_notes/mem_forget_note（常驻提示词+混合检索），本笔记本只落本地、不参与检索。",
       "parameters": {
         "type": "object",
         "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "save",
+              "list",
+              "get",
+              "forget"
+            ],
+            "description": "子功能：save 写 / list 列 / get 查 / forget 删。"
+          },
           "text": {
             "type": "string",
-            "description": "要记的内容"
+            "description": "【save】要记的内容（尽量具体、自包含）。"
+          },
+          "id": {
+            "type": "string",
+            "description": "【get/forget】条目 id（来自 list）。"
           }
         },
         "required": [
-          "text"
+          "action"
         ]
       },
       "tags": [
-        "write"
-      ],
-      "summary": {
-        "zh": "把你长期想记住的事写进私人笔记本。",
-        "en": "Write something you want to keep into your private notebook."
-      }
-    },
-    {
-      "name": "qq_note_list",
-      "description": "列出私人笔记本里的全部条目（本地 notebook.jsonl）。用于回看你记过什么。",
-      "parameters": {
-        "type": "object",
-        "properties": {},
-        "required": []
-      },
-      "tags": [
+        "write",
         "read"
       ],
       "summary": {
-        "zh": "列出笔记本里的全部条目。",
-        "en": "List every entry in the notebook."
+        "zh": "私人笔记本:写(save)/列(list)/查(get)/删(forget),落本地 notebook.jsonl。",
+        "en": "Private notebook: save / list / get / forget, stored in local notebook.jsonl."
       }
     },
     {
-      "name": "qq_note_get",
-      "description": "按 id 查看某条笔记本内容。id 来自 qq_note_list 的编号/条目 id。",
+      "name": "qq_admin",
+      "description": "【群管理员】系列（用一个 action 选子功能，需 admin.enabled 开启；部分操作需授权指挥官：控制台白名单 / 群管理员 / 群主，或开启 admin.allowSelf 让 AI 自主）：recall=撤回一条群消息（messageId，最近2分钟内或自己发的）；at_all=@全体成员（text 附带正文）；notice=发布群公告（content）；join_list=列出待审核加群请求；join_approve=通过加群请求（flag）；join_reject=拒绝加群请求（flag, reason?）；title=设置群专属头衔（who, title）；ban=禁言/解禁成员（who, durationSec?）；ban_all=全员禁言开关（enable）；kick=踢出成员（who, rejectRejoin?，高影响且不可逆，默认 AI 不能自主踢人）。",
       "parameters": {
         "type": "object",
         "properties": {
-          "id": {
+          "action": {
             "type": "string",
-            "description": "条目 id"
-          }
-        },
-        "required": [
-          "id"
-        ]
-      },
-      "tags": [
-        "read"
-      ],
-      "summary": {
-        "zh": "按 id 查看某条笔记本内容。",
-        "en": "Read one notebook entry by id."
-      }
-    },
-    {
-      "name": "qq_note_forget",
-      "description": "删除一条笔记本（你确定不再需要它时）。id 来自 qq_note_list 的编号/条目 id。",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "description": "条目 id"
-          }
-        },
-        "required": [
-          "id"
-        ]
-      },
-      "tags": [
-        "write"
-      ],
-      "summary": {
-        "zh": "删除一条笔记本。",
-        "en": "Delete one notebook entry."
-      }
-    },
-    {
-      "name": "qq_admin_recall",
-      "description": "【群管理员·可自主】撤回一条群消息。messageId 是要撤回消息的 message_id——它显示在每条群消息文本最开头、形如「#123456」的那个数字（把 # 后面的数字填进来即可）。仅群管理员/群主可撤回，且只能撤回近 2 分钟内的消息或自己发的消息。注意：授权指挥官（控制台白名单 / 群管理员 / 群主）能命令我撤回；此外 AI 自己判断需要撤回时也可自主执行。",
-      "parameters": {
-        "type": "object",
-        "properties": {
+            "enum": [
+              "recall",
+              "at_all",
+              "notice",
+              "join_list",
+              "join_approve",
+              "join_reject",
+              "title",
+              "ban",
+              "ban_all",
+              "kick"
+            ],
+            "description": "子功能，见上方描述。"
+          },
           "messageId": {
             "type": "string",
-            "description": "要撤回的 message_id，可填纯数字或「#123456」形式"
+            "description": "【recall】要撤回的 message_id（纯数字或 #123456）。"
           },
-          "group": {
-            "type": "string",
-            "description": "可选，群号或 group:<群号>；不填则使用当前会话所在群"
-          }
-        },
-        "required": [
-          "messageId"
-        ]
-      },
-      "tags": [
-        "write"
-      ],
-      "summary": {
-        "zh": "【群管理员】撤回一条群消息。",
-        "en": "Recall one group message (admin)."
-      }
-    },
-    {
-      "name": "qq_admin_at_all",
-      "description": "【群管理员】在群里 @全体成员（需群主/管理员权限，且群开启允许 @全体成员）。text 为要附带的正文。",
-      "parameters": {
-        "type": "object",
-        "properties": {
           "text": {
             "type": "string",
-            "description": "@全体时附带的正文内容"
+            "description": "【at_all/notice】@全体时的正文 / 群公告正文。"
           },
-          "group": {
-            "type": "string",
-            "description": "群号或 group:<群号>；不填用当前会话所在群"
-          }
-        },
-        "required": [
-          "text"
-        ]
-      },
-      "tags": [
-        "write"
-      ],
-      "summary": {
-        "zh": "【群管理员】在群里 @全体成员。",
-        "en": "Mention everyone in the group (admin)."
-      }
-    },
-    {
-      "name": "qq_admin_notice",
-      "description": "【群管理员】发布群通知（群公告）。content 为公告正文。部分 NapCat 版本 action 名为 send_group_notice，若失败可在控制台把 worlds.qqbot.admin.noticeAction 改成 _send_group_notice。",
-      "parameters": {
-        "type": "object",
-        "properties": {
           "content": {
             "type": "string",
-            "description": "群通知/公告正文"
+            "description": "【notice】群公告正文（同 text 的语义，保留兼容）。"
           },
-          "group": {
-            "type": "string",
-            "description": "群号或 group:<群号>；不填用当前会话所在群"
-          }
-        },
-        "required": [
-          "content"
-        ]
-      },
-      "tags": [
-        "write"
-      ],
-      "summary": {
-        "zh": "【群管理员】发布群公告。",
-        "en": "Publish a group announcement (admin)."
-      }
-    },
-    {
-      "name": "qq_admin_join_list",
-      "description": "【群管理员】列出当前待审核的加群请求（bot 收到的加群申请/邀请）。返回每条的 flag（审批用）、群号、申请人 QQ、留言。",
-      "parameters": {
-        "type": "object",
-        "properties": {}
-      },
-      "tags": [
-        "read"
-      ],
-      "summary": {
-        "zh": "【群管理员】列出待审核的加群请求。",
-        "en": "List pending join requests awaiting review (admin)."
-      }
-    },
-    {
-      "name": "qq_admin_join_approve",
-      "description": "【群管理员】通过一条加群请求。flag 来自 qq_admin_join_list（如 #xxx 的 # 后部分，或直接贴完整 flag 字符串）。",
-      "parameters": {
-        "type": "object",
-        "properties": {
           "flag": {
             "type": "string",
-            "description": "加群请求 flag（qq_admin_join_list 给出的 # 后字符串，或直接贴原 flag）"
-          }
-        },
-        "required": [
-          "flag"
-        ]
-      },
-      "tags": [
-        "write"
-      ],
-      "summary": {
-        "zh": "【群管理员】通过一条加群请求。",
-        "en": "Approve one join request (admin)."
-      }
-    },
-    {
-      "name": "qq_admin_join_reject",
-      "description": "【群管理员】拒绝一条加群请求。flag 来自 qq_admin_join_list；reason 为拒绝理由（可选，会通知申请人）。",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "flag": {
-            "type": "string",
-            "description": "加群请求 flag"
+            "description": "【join_approve/join_reject】加群请求 flag。"
           },
           "reason": {
             "type": "string",
-            "description": "拒绝理由（可选）"
-          }
-        },
-        "required": [
-          "flag"
-        ]
-      },
-      "tags": [
-        "write"
-      ],
-      "summary": {
-        "zh": "【群管理员】拒绝一条加群请求。",
-        "en": "Reject one join request (admin)."
-      }
-    },
-    {
-      "name": "qq_admin_title",
-      "description": "【群管理员】给某成员设置群专属头衔（special title）。当用户说\"给 xx 设个头衔/称号\"等要求时使用。who 填昵称、QQ 号或外号；省略则默认针对最近被引用或 @ 提及的人（群聊里用户说\"给他设个头衔\"时不填 who 也能用）。title 为头衔内容（空字符串则清除头衔）。",
-      "parameters": {
-        "type": "object",
-        "properties": {
+            "description": "【join_reject】拒绝理由（可选）。"
+          },
           "who": {
             "type": "string",
-            "description": "成员昵称、QQ 号或外号；不填则默认针对最近被引用/@ 提及的人"
+            "description": "【title/ban/kick】成员昵称、QQ 号或外号；不填则默认最近被引用/@ 提及的人。"
           },
           "title": {
             "type": "string",
-            "description": "要设置的群头衔（空字符串清除）"
-          },
-          "group": {
-            "type": "string",
-            "description": "群号或 group:<群号>；不填用当前会话所在群"
-          }
-        },
-        "required": []
-      },
-      "tags": [
-        "write"
-      ],
-      "summary": {
-        "zh": "【群管理员】给成员设置群专属头衔。",
-        "en": "Set a member special title (admin)."
-      }
-    },
-    {
-      "name": "qq_admin_ban",
-      "description": "【群管理员·需授权】禁言/解禁某成员。当用户要求\"禁言 xx/让他闭嘴/解禁 xx\"等时使用。who 填昵称、QQ 号或外号；省略则默认针对最近被引用或 @ 提及的人（群聊里用户说\"把他禁言\"时不填 who 也能用）。durationSec 为禁言秒数（默认 600，即 10 分钟；0 表示解除禁言）。注意：只有授权指挥官（控制台白名单 / 群管理员 / 群主）能命令我禁言，普通成员不行；且群主、其他管理员受保护。",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "who": {
-            "type": "string",
-            "description": "成员昵称、QQ 号或外号；不填则默认针对最近被引用/@ 提及的人"
+            "description": "【title】要设置的群头衔（空字符串清除）。"
           },
           "durationSec": {
             "type": "number",
-            "description": "禁言时长（秒），默认 600，0=解禁"
+            "description": "【ban】禁言时长（秒），默认 600，0=解禁。"
           },
-          "group": {
-            "type": "string",
-            "description": "群号或 group:<群号>；不填用当前会话所在群"
-          }
-        },
-        "required": []
-      },
-      "tags": [
-        "write"
-      ],
-      "summary": {
-        "zh": "【群管理员·需授权】禁言或解禁某成员。",
-        "en": "Mute or unmute a member (admin, needs authorization)."
-      }
-    },
-    {
-      "name": "qq_admin_ban_all",
-      "description": "【群管理员】全员禁言开关。enable=true 开启全员禁言（仅群主/管理员可发言），false 关闭。",
-      "parameters": {
-        "type": "object",
-        "properties": {
           "enable": {
             "type": "boolean",
-            "description": "true=开启全员禁言，false=关闭"
-          },
-          "group": {
-            "type": "string",
-            "description": "群号或 group:<群号>；不填用当前会话所在群"
-          }
-        },
-        "required": [
-          "enable"
-        ]
-      },
-      "tags": [
-        "write"
-      ],
-      "summary": {
-        "zh": "【群管理员】开启或关闭全员禁言。",
-        "en": "Turn group-wide mute on or off (admin)."
-      }
-    },
-    {
-      "name": "qq_admin_kick",
-      "description": "【群管理员·需授权】把某成员踢出群聊（踢人/飞机票）。当用户要求\"把 xx 踢了/踢出群/清理出去\"等时使用。who 填昵称、QQ 号或外号；省略则默认针对最近被引用或 @ 提及的人（群聊里用户说\"把他踢了\"时不填 who 也能用）。rejectRejoin=true（默认）表示踢出并拒绝其再次加群，false 则只踢出、对方仍可重新申请。注意：踢人比禁言更重且不可逆，只有授权指挥官（控制台白名单 / 群管理员 / 群主）能命令我执行，默认 AI 不能自主踢人（控制台开启 admin.allowSelfKick 可放行）；群主、其他管理员受保护，不能踢自己。",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "who": {
-            "type": "string",
-            "description": "成员昵称、QQ 号或外号；不填则默认针对最近被引用/@ 提及的人"
+            "description": "【ban_all】true=开启全员禁言，false=关闭。"
           },
           "rejectRejoin": {
             "type": "boolean",
-            "description": "true=踢出并拒绝再次加群（默认），false=仅踢出"
+            "description": "【kick】true=踢出并拒绝再次加群（默认），false=仅踢出。"
           },
           "group": {
             "type": "string",
-            "description": "群号或 group:<群号>；不填用当前会话所在群"
-          }
-        },
-        "required": []
-      },
-      "tags": [
-        "write"
-      ],
-      "summary": {
-        "zh": "【群管理员·需授权】把成员踢出群聊。",
-        "en": "Kick a member out of the group (admin, needs authorization)."
-      }
-    },
-    {
-      "name": "qq_recent",
-      "description": "查询某个群或私聊最近的消息（按时间倒序）。用于回顾刚才说过的话、确认上下文。参数 group 为群号；查私聊时改用 peer。",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "group": {
-            "type": "number",
-            "description": "群号；与 peer 二选一。"
-          },
-          "peer": {
-            "type": "number",
-            "description": "私聊对方 QQ；与 group 二选一。"
-          },
-          "minutes": {
-            "type": "number",
-            "description": "回溯时间窗（分钟），默认 60。"
-          },
-          "limit": {
-            "type": "number",
-            "description": "最多返回条数，默认 30。"
-          }
-        },
-        "required": []
-      },
-      "tags": [
-        "read"
-      ],
-      "summary": {
-        "zh": "回看某会话最近的聊天记录。",
-        "en": "Read the recent chat log of one conversation."
-      }
-    },
-    {
-      "name": "qq_search",
-      "description": "在 QQ 消息记录中按关键词检索历史消息，返回匹配片段及上下文。",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "keyword": {
-            "type": "string",
-            "description": "不区分大小写的包含匹配关键词。"
-          },
-          "limit": {
-            "type": "number",
-            "description": "最多返回的命中组数，默认 10。"
+            "description": "群号或 group:<群号>；不填用当前会话所在群。"
           }
         },
         "required": [
-          "keyword"
+          "action"
+        ]
+      },
+      "tags": [
+        "write",
+        "read"
+      ],
+      "summary": {
+        "zh": "【群管理员】撤回/@全体/公告/审加群/头衔/禁言/全员禁言/踢人,用一个 action 选子功能。",
+        "en": "Group admin: recall / mention-all / notice / review joins / title / mute / whole-mute / kick, picked by one action."
+      }
+    },
+    {
+      "name": "qq_history",
+      "description": "聊天历史查询系列（用一个 action 选子功能）：recent=查某个群或私聊最近的消息（按时间倒序，用于回顾刚才说过的话、确认上下文）；search=在 QQ 消息记录中按关键词检索历史消息，返回匹配片段及上下文（keyword 必填）。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "recent",
+              "search"
+            ],
+            "description": "子功能：recent 查最近 / search 关键词检索。"
+          },
+          "group": {
+            "type": "number",
+            "description": "【recent】群号；与 peer 二选一。"
+          },
+          "peer": {
+            "type": "number",
+            "description": "【recent】私聊对方 QQ；与 group 二选一。"
+          },
+          "minutes": {
+            "type": "number",
+            "description": "【recent】回溯时间窗（分钟），默认 60。"
+          },
+          "limit": {
+            "type": "number",
+            "description": "【recent】最多返回条数，默认 30；【search】最多返回命中组数，默认 10。"
+          },
+          "keyword": {
+            "type": "string",
+            "description": "【search】不区分大小写的包含匹配关键词。"
+          }
+        },
+        "required": [
+          "action"
         ]
       },
       "tags": [
         "read"
       ],
       "summary": {
-        "zh": "在历史聊天记录里按关键词搜索。",
-        "en": "Search chat history by keyword."
+        "zh": "聊天历史:查最近消息(recent)或关键词检索(search)。",
+        "en": "Chat history: recent messages or keyword search."
       }
     }
   ],

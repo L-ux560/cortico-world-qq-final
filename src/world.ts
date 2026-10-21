@@ -2229,146 +2229,114 @@ export class QQWorld implements World {
       },
     };
 
-    const proactiveStatus: ToolDef = {
-      name: 'qq_proactive_status',
-      tags: ['read'],
+    const proactiveTool: ToolDef = {
+      name: 'qq_proactive',
+      tags: ['read', 'speak'],
       barrierAfter: true,
-      description: '查看主动说话调度器状态：运行态（暖场/稳定/静默）、今日已发/配额、各会话未回复与静默情况、最近主动说过的话。',
-      parameters: { type: 'object', properties: {}, required: [] },
-      handler: async () => {
-        if (!this.proactive) return '主动说话调度器未启用。';
-        const s = this.proactive.status(this.proactiveTargets().length);
-        const per = Object.entries(s.perAddr)
-          .map(([a, v]) => `- ${a}：态=${v.state} 未回复=${v.unreplied}${v.silentUntil ? ' 静默至=' + new Date(v.silentUntil).toISOString() : ''}`)
-          .join('\n') || '（无会话状态）';
-        const recent = s.recent.length ? s.recent.slice(-5).map((t, i) => `  ${i + 1}. ${t}`).join('\n') : '（暂无）';
-        return `主动说话：${s.runState}；今日 ${s.dailyCount}/${s.dailyQuota}；可主动会话 ${s.targets}\n会话状态：\n${per}\n最近主动说过：\n${recent}`;
-      },
-    };
-
-    const proactiveTrigger: ToolDef = {
-      name: 'qq_proactive_trigger',
-      tags: ['speak'],
-      barrierAfter: true,
-      description: '手动触发一次主动说话：随机挑一个可主动的监听会话（或指定 address 如 private:123）发一条闲聊。用于测试主动说话调度器。',
+      description:
+        '主动说话调度器系列（用一个 action 选子功能）：' +
+        'status=查看调度器状态、今日配额与近期主动发言；' +
+        'trigger=手动触发一次主动说话（address?，留空随机），用于测试。',
       parameters: {
         type: 'object',
-        properties: { address: { type: 'string', description: '可选：目标会话地址，如 private:123 / group:456；留空则随机。' } },
-        required: [],
+        properties: {
+          action: { type: 'string', enum: ['status', 'trigger'], description: '子功能：status 查状态 / trigger 手动触发。' },
+          address: { type: 'string', description: '【trigger】可选目标会话地址，如 private:123 / group:456；留空随机。' },
+        },
+        required: ['action'],
       },
       handler: async (args) => {
         if (!this.proactive) return '主动说话调度器未启用（先在控制台开 worlds.qqbot.proactive.enabled）。';
-        const addr = typeof args.address === 'string' && args.address ? args.address : undefined;
-        return this.proactive.trigger(addr);
+        const action = String(args.action ?? '');
+        switch (action) {
+          case 'status': {
+            const s = this.proactive.status(this.proactiveTargets().length);
+            const per = Object.entries(s.perAddr)
+              .map(([a, v]) => `- ${a}：态=${v.state} 未回复=${v.unreplied}${v.silentUntil ? ' 静默至=' + new Date(v.silentUntil).toISOString() : ''}`)
+              .join('\n') || '（无会话状态）';
+            const recent = s.recent.length ? s.recent.slice(-5).map((t, i) => `  ${i + 1}. ${t}`).join('\n') : '（暂无）';
+            return `主动说话：${s.runState}；今日 ${s.dailyCount}/${s.dailyQuota}；可主动会话 ${s.targets}\n会话状态：\n${per}\n最近主动说过：\n${recent}`;
+          }
+          case 'trigger': {
+            const addr = typeof args.address === 'string' && args.address ? args.address : undefined;
+            return this.proactive.trigger(addr);
+          }
+          default:
+            return `未知 action：「${action}」（支持 status/trigger）。`;
+        }
       },
     };
 
-    const qzonePost: ToolDef = {
-      name: 'qq_qzone_post',
-      tags: ['speak'],
+    const qzoneTool: ToolDef = {
+      name: 'qq_qzone',
+      tags: ['speak', 'read'],
       barrierAfter: true,
       description:
-        '在 QQ 空间发一条动态（说说）。content 为动态正文，必须由你（主模型）显式给出——本扩展不再自动生成动态文字。内容按「最近聊天 + 你对人或事的真实看法」以第一人称写：吐槽/安利/简介/分享心情都行，自然有梗，1-3 句。可附图片（images：仅支持 http(s):// 与 base64:// 链接，出于安全考虑不支持本机文件）与 @人（ats：昵称或 QQ 号）。permission 默认 1=公开。返回 tid 供后续删除/回复。',
+        'QQ 空间动态系列（用一个 action 选子功能）：' +
+        'post=发一条动态（说说，content 必填，可附图 images / @人 ats / 权限 permission）；' +
+        'delete=删除一条动态（tid）；reply=回复某条动态下的评论（tid+comment_id+content）；' +
+        'feeds=查看自己的动态列表（num）；status=查看发布器状态（开关/配额/最近动态 tid）。' +
+        'content 必须由你（主模型）显式给出：按“最近聊天 + 真实看法”以第一人称写，自然有梗，1-3 句；' +
+        '不要空泛、不要“我帮你记下了”这类托管语气。',
       parameters: {
         type: 'object',
         properties: {
-          content: { type: 'string', description: '动态正文（必填）：以第一人称写，结合最近聊天与记忆发表真实看法/吐槽/简介/心情。' },
-          topic: { type: 'string', description: '可选方向提示，如「吐槽最近的天气」「介绍一下小明」。' },
-          images: { type: 'array', items: { type: 'string' }, description: '附图链接数组（仅支持 http(s):// 与 base64://；出于安全考虑不支持本机文件）。' },
-          ats: { type: 'array', items: { type: 'string' }, description: '@的人：昵称或 QQ 号数组。' },
-          permission: { type: 'number', description: '可见权限 ugc_right，默认 1=公开。' },
+          action: { type: 'string', enum: ['post', 'delete', 'reply', 'feeds', 'status'], description: '子功能：post 发动态 / delete 删动态 / reply 回评论 / feeds 列动态 / status 看状态。' },
+          content: { type: 'string', description: '【post】动态正文（必填）：以第一人称写，结合最近聊天与记忆发表真实看法/吐槽/简介/心情。' },
+          topic: { type: 'string', description: '可选方向提示，如“吐槽最近的天气”“介绍一下小明”。' },
+          images: { type: 'array', items: { type: 'string' }, description: '【post】附图链接数组（仅支持 http(s):// 与 base64://；不支持本机文件）。' },
+          ats: { type: 'array', items: { type: 'string' }, description: '【post】@的人：昵称或 QQ 号数组。' },
+          permission: { type: 'number', description: '【post】可见权限 ugc_right，默认 1=公开。' },
+          tid: { type: 'string', description: '【delete/reply】动态 tid（来自 post 返回或 status 最近列表）。' },
+          comment_id: { type: 'string', description: '【reply】评论 id。' },
+          num: { type: 'number', description: '【feeds】返回条数，默认 5。' },
         },
-        required: ['content'],
+        required: ['action'],
       },
       handler: async (args) => {
         if (!this.qzone) return 'QQ空间动态未启用（先在控制台开 worlds.qqbot.qzone.enabled 并重启）。';
-        const r = await this.qzone.post({
-          content: typeof args.content === 'string' ? args.content : undefined,
-          topic: typeof args.topic === 'string' ? args.topic : undefined,
-          images: Array.isArray(args.images) ? args.images.filter((x) => typeof x === 'string') : undefined,
-          ats: Array.isArray(args.ats) ? args.ats.filter((x) => typeof x === 'string') : undefined,
-          permission: typeof args.permission === 'number' ? args.permission : undefined,
-        });
-        return r.ok
-          ? `已发 QQ空间动态。tid=${r.tid ?? '(未知)'}；内容：${r.text ?? ''}`
-          : `发 QQ空间动态失败：${r.error ?? '未知错误'}`;
-      },
-    };
-
-    const qzoneDelete: ToolDef = {
-      name: 'qq_qzone_delete',
-      tags: ['speak'],
-      barrierAfter: true,
-      description: '删除一条 QQ 空间动态。tid 来自 qq_qzone_post 的返回或 qq_qzone_status 的最近列表。',
-      parameters: {
-        type: 'object',
-        properties: { tid: { type: 'string', description: '要删除的动态 tid。' } },
-        required: ['tid'],
-      },
-      handler: async (args) => {
-        if (!this.qzone) return 'QQ空间动态未启用。';
-        const tid = String(args.tid ?? '');
-        if (!tid) return '缺少 tid。';
-        const r = await this.qzone.delete(tid);
-        return r.ok ? `已删除 QQ空间动态 tid=${tid}。` : `删除失败：${r.error ?? '未知错误'}`;
-      },
-    };
-
-    const qzoneReply: ToolDef = {
-      name: 'qq_qzone_reply',
-      tags: ['speak'],
-      barrierAfter: true,
-      description: '回复某条动态下的一条评论。tid 为动态 id，comment_id 为评论 id（来自 QQ空间评论事件或你记忆里 qq_qzone_status 的互动记录）。',
-      parameters: {
-        type: 'object',
-        properties: {
-          tid: { type: 'string', description: '动态 tid。' },
-          comment_id: { type: 'string', description: '评论 id。' },
-          content: { type: 'string', description: '回复内容。' },
-        },
-        required: ['tid', 'comment_id', 'content'],
-      },
-      handler: async (args) => {
-        if (!this.qzone) return 'QQ空间动态未启用。';
-        const tid = String(args.tid ?? '');
-        const cid = String(args.comment_id ?? '');
-        const content = typeof args.content === 'string' ? args.content : '';
-        if (!tid || !cid || !content) return 'tid / comment_id / content 都不能为空。';
-        const r = await this.qzone.replyComment(tid, cid, content);
-        return r.ok ? `已回复 QQ空间评论（tid=${tid}, comment_id=${cid}）。` : `回复失败：${r.error ?? '未知错误'}（评论回复 action 名称可在控制台 qzone.commentAction 调整）`;
-      },
-    };
-
-    const qzoneFeeds: ToolDef = {
-      name: 'qq_qzone_feeds',
-      tags: ['read'],
-      barrierAfter: true,
-      description: '查看自己的 QQ 空间动态列表（尽力而为；依赖 NapCat 的 get_qzone_msg_list 是否支持）。',
-      parameters: {
-        type: 'object',
-        properties: { num: { type: 'number', description: '返回条数，默认 5。' } },
-        required: [],
-      },
-      handler: async (args) => {
-        if (!this.qzone) return 'QQ空间动态未启用。';
-        const num = typeof args.num === 'number' && Number.isFinite(args.num) ? Math.max(1, Math.min(50, args.num)) : 5;
-        const r = await this.qzone.getFeeds(num);
-        if (!r.ok) return `获取动态列表失败：${r.error ?? '未知错误'}`;
-        return `最近 ${num} 条动态：\n${JSON.stringify(r.feeds ?? []).slice(0, 2000)}`;
-      },
-    };
-
-    const qzoneStatus: ToolDef = {
-      name: 'qq_qzone_status',
-      tags: ['read'],
-      barrierAfter: true,
-      description: '查看 QQ 空间动态发布器状态：是否开启、今日已发/配额、自动回复评论是否开、最近发的动态（含 tid）。',
-      parameters: { type: 'object', properties: {}, required: [] },
-      handler: async () => {
-        if (!this.qzone) return 'QQ空间动态未启用（先在控制台开 worlds.qqbot.qzone.enabled 并重启）。';
-        const s = this.qzone.status();
-        const posts = (s.lastPosts as Array<{ tid?: string; text: string }>).map((p) => `- tid=${p.tid ?? '?'}：${p.text}`).join('\n') || '（暂无）';
-        return `QQ空间动态：开启=${s.enabled}；今日自动 ${s.dailyCount}/${s.dailyQuota}；自动回评=${s.autoReply}（今日 ${s.replyDailyCount}）；最近动态：\n${posts}`;
+        const action = String(args.action ?? '');
+        switch (action) {
+          case 'post': {
+            const r = await this.qzone.post({
+              content: typeof args.content === 'string' ? args.content : undefined,
+              topic: typeof args.topic === 'string' ? args.topic : undefined,
+              images: Array.isArray(args.images) ? args.images.filter((x) => typeof x === 'string') : undefined,
+              ats: Array.isArray(args.ats) ? args.ats.filter((x) => typeof x === 'string') : undefined,
+              permission: typeof args.permission === 'number' ? args.permission : undefined,
+            });
+            return r.ok
+              ? `已发 QQ空间动态。tid=${r.tid ?? '(未知)'}；内容：${r.text ?? ''}`
+              : `发 QQ空间动态失败：${r.error ?? '未知错误'}`;
+          }
+          case 'delete': {
+            const tid = String(args.tid ?? '');
+            if (!tid) return '缺少 tid。';
+            const r = await this.qzone.delete(tid);
+            return r.ok ? `已删除 QQ空间动态 tid=${tid}。` : `删除失败：${r.error ?? '未知错误'}`;
+          }
+          case 'reply': {
+            const tid = String(args.tid ?? '');
+            const cid = String(args.comment_id ?? '');
+            const content = typeof args.content === 'string' ? args.content : '';
+            if (!tid || !cid || !content) return 'tid / comment_id / content 都不能为空。';
+            const r = await this.qzone.replyComment(tid, cid, content);
+            return r.ok ? `已回复 QQ空间评论（tid=${tid}, comment_id=${cid}）。` : `回复失败：${r.error ?? '未知错误'}（评论回复 action 名称可在控制台 qzone.commentAction 调整）`;
+          }
+          case 'feeds': {
+            const num = typeof args.num === 'number' && Number.isFinite(args.num) ? Math.max(1, Math.min(50, args.num)) : 5;
+            const r = await this.qzone.getFeeds(num);
+            if (!r.ok) return `获取动态列表失败：${r.error ?? '未知错误'}`;
+            return `最近 ${num} 条动态：\n${JSON.stringify(r.feeds ?? []).slice(0, 2000)}`;
+          }
+          case 'status': {
+            const s = this.qzone.status();
+            const posts = (s.lastPosts as Array<{ tid?: string; text: string }>).map((p) => `- tid=${p.tid ?? '?'}：${p.text}`).join('\n') || '（暂无）';
+            return `QQ空间动态：开启=${s.enabled}；今日自动 ${s.dailyCount}/${s.dailyQuota}；自动回评=${s.autoReply}（今日 ${s.replyDailyCount}）；最近动态：\n${posts}`;
+          }
+          default:
+            return `未知 action：「${action}」（支持 post/delete/reply/feeds/status）。`;
+        }
       },
     };
 
@@ -2440,443 +2408,284 @@ export class QQWorld implements World {
       },
     };
 
-    // ---- 闹钟 / 记事本 ----
-    const reminderAdd: ToolDef = {
-      name: 'qq_reminder_add',
-      tags: ['speak'],
+    const reminderTool: ToolDef = {
+      name: 'qq_reminder',
+      tags: ['speak', 'read', 'write'],
       description:
-        '记一个定时提醒 / 闹钟（也是记事本）。把需要以后做的事、约定、待办记下，到点会自动在该会话提醒对方。' +
-        'when 支持：绝对 ISO 时间（如 2026-09-24T09:30）、"HH:MM"（今天，已过则明天）、"明天 9:00"、"in 30m" / "30分钟后" / "2小时后" / "3天后"。' +
-        'text 是提醒内容。address 默认就是当前会话（一般不用填）；scope 可填“这是谁的事 / 相关人”等备注。',
+        '定时提醒 / 闹钟（也是记事本）系列（用一个 action 选子功能）：' +
+        'add=记一个定时提醒（text+when，when 支持绝对 ISO、"HH:MM"、明天 9:00、in 30m/30分钟后/2小时后/3天后）；' +
+        'list=列出所有未触发的提醒（汇报用）；cancel=取消/删除一条提醒（id）。' +
+        '到点会自动在该会话提醒对方；address 默认当前会话；scope 可填备注（谁的事/相关人）。',
       parameters: {
         type: 'object',
         properties: {
-          text: { type: 'string', description: '要提醒的内容，例如“提醒我三点开会”“和用户约好的事：明天还书”' },
-          when: { type: 'string', description: '提醒时间，见上方描述里的格式（给一个未来的时间）' },
-          address: { type: 'string', description: '可选，提醒发到哪个会话（group:群号 / private:QQ），默认当前会话' },
-          scope: { type: 'string', description: '可选，备注（谁的事 / 相关人）' },
+          action: { type: 'string', enum: ['add', 'list', 'cancel'], description: '子功能：add 记提醒 / list 列提醒 / cancel 取消。' },
+          text: { type: 'string', description: '【add】要提醒的内容，例如“提醒我三点开会”。' },
+          when: { type: 'string', description: '【add】提醒时间，支持 ISO、HH:MM、明天 9:00、in 30m、30分钟后 等（给未来时间）。' },
+          address: { type: 'string', description: '可选，提醒发到哪个会话（group:群号 / private:QQ），默认当前会话。' },
+          scope: { type: 'string', description: '可选，备注（谁的事 / 相关人）。' },
+          id: { type: 'string', description: '【cancel】要取消的提醒 id（来自 list 或 add 返回）。' },
         },
-        required: ['text', 'when'],
+        required: ['action'],
       },
       handler: async (args, ctx) => {
-        const text = String(args.text ?? '').trim();
-        const whenStr = String(args.when ?? '').trim();
-        if (!text) return { error: 'text 不能为空' };
-        const when = parseWhen(whenStr);
-        if (when == null) {
-          return { error: `无法解析时间：“${whenStr}”。支持 ISO、HH:MM、明天 9:00、in 30m、30分钟后 等。` };
+        const action = String(args.action ?? '');
+        switch (action) {
+          case 'add': {
+            const text = String(args.text ?? '').trim();
+            const whenStr = String(args.when ?? '').trim();
+            if (!text) return { error: 'text 不能为空' };
+            const when = parseWhen(whenStr);
+            if (when == null) {
+              return { error: `无法解析时间：“${whenStr}”。支持 ISO、HH:MM、明天 9:00、in 30m、30分钟后 等。` };
+            }
+            if (when <= Date.now()) return { error: '这个时间已经过去了，请给一个未来的时间。' };
+            const address = typeof args.address === 'string' && args.address.trim() ? args.address.trim() : ctx.role;
+            const scope = typeof args.scope === 'string' ? args.scope.trim() : '';
+            const r = this.reminders.add(text, when, { address, scope });
+            return { text: `已记下提醒（id=${r.id}）：${text} @ ${formatWhen(when)}`, ok: true, id: r.id, content: text, when: formatWhen(when), whenMs: when, address };
+          }
+          case 'list': {
+            const list = this.reminders.list(true);
+            if (!list.length) return { text: '当前没有待提醒/记事。', ok: true, count: 0, reminders: [] };
+            return {
+              text: `共 ${list.length} 条待提醒/记事：` + list.map((r) => `- [${r.id}] ${r.text} @ ${formatWhen(r.when)}`).join('\n'),
+              ok: true,
+              count: list.length,
+              reminders: list.map((r) => ({ id: r.id, text: r.text, when: formatWhen(r.when), address: r.address || '', scope: r.scope || '' })),
+            };
+          }
+          case 'cancel': {
+            const id = String(args.id ?? '').trim();
+            if (!id) return { error: 'id 不能为空' };
+            const ok = this.reminders.remove(id);
+            return ok ? { text: `已取消提醒 ${id}。`, ok: true, removed: id } : { error: `没找到 id=${id} 的提醒` };
+          }
+          default:
+            return `未知 action：「${action}」（支持 add/list/cancel）。`;
         }
-        if (when <= Date.now()) return { error: '这个时间已经过去了，请给一个未来的时间。' };
-        const address = typeof args.address === 'string' && args.address.trim() ? args.address.trim() : ctx.role;
-        const scope = typeof args.scope === 'string' ? args.scope.trim() : '';
-        const r = this.reminders.add(text, when, { address, scope });
-        return { text: `已记下提醒（id=${r.id}）：${text} @ ${formatWhen(when)}`, ok: true, id: r.id, content: text, when: formatWhen(when), whenMs: when, address };
       },
     };
-    const reminderList: ToolDef = {
-      name: 'qq_reminder_list',
-      tags: ['read'],
-      description: '列出当前所有未触发的提醒 / 记事（闹钟清单），用于向用户汇报“你记了这些事”。返回每条的 id、内容、时间。',
-      parameters: { type: 'object', properties: {}, required: [] },
-      handler: async () => {
-        const list = this.reminders.list(true);
-        if (!list.length) return { text: '当前没有待提醒/记事。', ok: true, count: 0, reminders: [] };
-        return {
-          text: `共 ${list.length} 条待提醒/记事：` + list.map((r) => `- [${r.id}] ${r.text} @ ${formatWhen(r.when)}`).join('\n'),
-          ok: true,
-          count: list.length,
-          reminders: list.map((r) => ({ id: r.id, text: r.text, when: formatWhen(r.when), address: r.address || '', scope: r.scope || '' })),
-        };
-      },
-    };
-    const reminderCancel: ToolDef = {
-      name: 'qq_reminder_cancel',
-      tags: ['speak'],
-      description: '取消 / 删除一条提醒（记事）。传要删的 id（来自 qq_reminder_list 或 add 时返回的 id）。',
-      parameters: {
-        type: 'object',
-        properties: { id: { type: 'string', description: '要取消的提醒 id' } },
-        required: ['id'],
-      },
-      handler: async (args, ctx) => {
-        const id = String(args.id ?? '').trim();
-        if (!id) return { error: 'id 不能为空' };
-        const ok = this.reminders.remove(id);
-        return ok ? { text: `已取消提醒 ${id}。`, ok: true, removed: id } : { error: `没找到 id=${id} 的提醒` };
-      },
-    };
-    // ---- 智能体私人笔记本（本地 notebook.jsonl；与记忆扩展的 mem_note 功能重复）----
-    const noteSave: ToolDef = {
-      name: 'qq_note_save',
-      tags: ['write'],
+
+    const noteTool: ToolDef = {
+      name: 'qq_note',
+      tags: ['write', 'read'],
       description:
-        '把你想长期记住的东西写进「私人笔记本」——任何你（智能体）想记的事：对某个人的观感、一条约定、一个灵感、' +
-        '用户叮嘱的偏好、自己立下的小目标等。注意：若同时安装了 cortico-world-memory，请优先用它的 ' +
-        'mem_note/mem_notes/mem_forget_note（常驻环境提示词 + 混合检索），本笔记本只落本地文件、不参与检索。' +
-        'text 填要记的内容（尽量具体、自包含，日后回看能懂）。',
+        '智能体私人笔记本（本地 notebook.jsonl；与记忆扩展的 mem_note 功能重复）系列（用一个 action 选子功能）：' +
+        'save=写一条长期记忆（text，尽量具体自包含）；list=列出全部条目；get=按 id 查看一条；forget=删除一条。' +
+        '注意：若同时装了 cortico-world-memory，请优先用它的 mem_note/mem_notes/mem_forget_note（常驻提示词+混合检索），本笔记本只落本地、不参与检索。',
       parameters: {
         type: 'object',
-        properties: { text: { type: 'string', description: '要记的内容' } },
-        required: ['text'],
+        properties: {
+          action: { type: 'string', enum: ['save', 'list', 'get', 'forget'], description: '子功能：save 写 / list 列 / get 查 / forget 删。' },
+          text: { type: 'string', description: '【save】要记的内容（尽量具体、自包含）。' },
+          id: { type: 'string', description: '【get/forget】条目 id（来自 list）。' },
+        },
+        required: ['action'],
       },
       handler: async (args, ctx) => {
-        const text = typeof args.text === 'string' ? args.text.trim() : '';
-        if (!text) return { error: 'text 不能为空' };
-        const r = await this.notebook.save(text);
-        const preview = text.length > 60 ? text.slice(0, 60) + '…' : text;
-        return { text: `已记到笔记本（本地）：${preview}`, ok: true, id: r.id, backend: r.backend };
-      },
-    };
-    const noteList: ToolDef = {
-      name: 'qq_note_list',
-      tags: ['read'],
-      description: '列出私人笔记本里的全部条目（本地 notebook.jsonl）。用于回看你记过什么。',
-      parameters: { type: 'object', properties: {}, required: [] },
-      handler: async () => {
-        const entries = await this.notebook.list();
-        if (!entries.length) return { text: '笔记本还是空的，还没记过东西。', ok: true, count: 0, backend: this.notebook.backend, entries: [] };
-        const lines = entries.map((e) => `${e.seq != null ? e.seq + '. ' : '- '}${e.text}`);
-        return { text: `笔记本（本地）共 ${entries.length} 条：\n` + lines.join('\n'), ok: true, count: entries.length, backend: this.notebook.backend, entries: entries.map((e) => ({ id: e.id, text: e.text, ts: e.ts })) };
-      },
-    };
-    const noteGet: ToolDef = {
-      name: 'qq_note_get',
-      tags: ['read'],
-      description: '按 id 查看某条笔记本内容。id 来自 qq_note_list 的编号/条目 id。',
-      parameters: { type: 'object', properties: { id: { type: 'string', description: '条目 id' } }, required: ['id'] },
-      handler: async (args, ctx) => {
-        const id = typeof args.id === 'string' ? args.id.trim() : '';
-        if (!id) return { error: 'id 不能为空' };
-        const e = await this.notebook.get(id);
-        if (!e) return { text: `没找到 id=${id} 的笔记。`, ok: true, found: false };
-        return { text: `笔记 #${id}：${e.text}`, ok: true, found: true, id: e.id, content: e.text, ts: e.ts };
-      },
-    };
-    const noteForget: ToolDef = {
-      name: 'qq_note_forget',
-      tags: ['write'],
-      description: '删除一条笔记本（你确定不再需要它时）。id 来自 qq_note_list 的编号/条目 id。',
-      parameters: { type: 'object', properties: { id: { type: 'string', description: '条目 id' } }, required: ['id'] },
-      handler: async (args, ctx) => {
-        const id = typeof args.id === 'string' ? args.id.trim() : '';
-        if (!id) return { error: 'id 不能为空' };
-        const ok = await this.notebook.forget(id);
-        return ok ? { text: `已删除笔记本 #${id}。`, ok: true, id } : { text: `没找到 id=${id} 的笔记，未删除。`, ok: true, found: false };
-      },
-    };
-
-    // ===================== 群管理员能力（admin.enabled 控制是否生效） =====================
-    /** 仅检查管理员总开关 */
-    const adminEnabled = (): string | null => (this.config.admin.enabled ? null : '管理员功能未开启（在控制台开启 worlds.qqbot.admin.enabled 后即可使用）。');
-
-    /** 指挥官鉴权结果 */
-    interface AuthResult {
-      ok: boolean;
-      text?: string;
-      gid?: number;
-      callerId?: number;
-      callerRole?: string;
-    }
-
-    /**
-     * 管理员操作指挥官鉴权：判断「谁在命令 bot 执行管理操作」是否有权。
-     * 授权逻辑（满足任一即可）：
-     *  1) 指挥官 QQ 在 admin.allowlist 白名单中；
-     *  2) admin.allowGroupAdmins 开启，且指挥官在群内身份为 owner/admin（ownerOnly 时仅 owner）；
-     *  3) admin.allowSelf 开启，且 bot 自身（AI）主动决定执行管理操作（无需某个人下令）。
-     * 指挥官取自「本会话最近一次发言者」（callerByConv），仅 2 分钟内有效，防会话串台/陈旧来源。
-     */
-    const adminAuthorize = async (ctx: ToolCallContext, args: Record<string, unknown>): Promise<AuthResult> => {
-      if (!this.config.admin.enabled) return { ok: false, text: '管理员功能未开启（在控制台开启 worlds.qqbot.admin.enabled 后即可使用）。' };
-      const rg = resolveGroup(args.group ?? ctx.role);
-      if (rg.err) return { ok: false, text: rg.err };
-      const gid = rg.gid;
-      const cfg = this.config.admin;
-      const caller = this.callerByConv.get(ctx.role);
-      const fresh = caller && Date.now() - caller.at < 120000 ? caller : undefined;
-      const callerId = fresh?.userId;
-      if (callerId == null) {
-        // 没有近期发言者：无法判定为人类指挥官；若允许 bot 自主行动则授权，否则拒绝
-        if (cfg.allowSelf) return { ok: true, gid, callerRole: 'self' };
-        return { ok: false, text: '无法确定命令来源：仅当有人在群里 @ 你或在群里说话时，才能触发管理操作（防滥用）。' };
-      }
-      const callerStr = String(callerId);
-      // 1) 白名单
-      if (Array.isArray(cfg.allowlist) && cfg.allowlist.map(String).includes(callerStr)) {
-        return { ok: true, gid, callerId, callerRole: 'allowlisted' };
-      }
-      // 2) 群内身份
-      if (cfg.allowGroupAdmins) {
-        try {
-          const info = await this.driver.getMemberInfo(gid, Number(callerId));
-          const role = (info && (info.role as string)) || 'member';
-          const allowed = cfg.ownerOnly ? role === 'owner' : role === 'owner' || role === 'admin';
-          if (allowed) return { ok: true, gid, callerId, callerRole: role };
-        } catch { /* 落到下方逻辑 */ }
-      }
-      // 3) bot 自身主动决定（AI 自己想禁言/撤回也行）
-      if (cfg.allowSelf) return { ok: true, gid, callerId, callerRole: 'self' };
-      // 均不满足：拒绝并说明
-      if (!cfg.allowGroupAdmins) {
-        return { ok: false, text: `群管理员指挥未开启，且你（QQ ${callerStr}）不在授权白名单中，无法命令我执行管理操作。` };
-      }
-      // 群内身份不足，且无自主授权
-      const info = await this.driver.getMemberInfo(gid, Number(callerId)).catch(() => null);
-      const role = (info && (info.role as string)) || 'member';
-      return { ok: false, text: `你（QQ ${callerStr}，群内身份=${role}）没有管理员权限，不能命令我执行管理操作。` };
-    };
-
-    /**
-     * 目标保护：某些身份（群主、管理员）不允许被普通管理员撤/禁/改头衔。
-     * 返回拒绝文本，或 null 表示允许。
-     */
-    const protectTarget = async (gid: number, targetUid: number, callerRole?: string): Promise<string | null> => {
-      const cfg = this.config.admin;
-      if (!cfg.protectOwner && !cfg.protectAdmins) return null;
-      try {
-        const info = await this.driver.getMemberInfo(gid, targetUid);
-        const role = (info && (info.role as string)) || 'member';
-        if (cfg.protectOwner && role === 'owner') return '不能对群主执行该操作（受保护）。';
-        if (cfg.protectAdmins && role === 'admin' && callerRole !== 'owner') return '只有群主才能对该管理员执行该操作（受保护）。';
-      } catch { /* 查询失败不阻断，按允许处理 */ }
-      return null;
-    };
-
-    /** 解析群参数：支持群号(number)或 "group:xxx" 形式，返回 group_id（number）或报错文本。 */
-    const resolveGroup = (to: unknown): { gid: number; err?: string } => {
-      let gidRaw: number | null = null;
-      if (typeof to === 'number') gidRaw = to;
-      else if (typeof to === 'string') {
-        const s = to.trim();
-        if (s.startsWith('group:')) gidRaw = Number(s.slice(6));
-        else gidRaw = Number(s);
-      }
-      if (gidRaw == null || !Number.isFinite(gidRaw) || gidRaw <= 0) return { gid: 0, err: `无法识别的群标识：${String(to)}（填群号或 group:<群号>）` };
-      return { gid: gidRaw };
-    };
-    /** 把昵称/QQ/外号解析成 userId（外号记忆优先，其次群内昵称），失败返回报错文本。 */
-    const resolveUser = async (gid: number, who: unknown): Promise<{ uid: number; err?: string }> => {
-      const s = typeof who === 'string' ? who.trim() : String(who ?? '');
-      if (!s) return { uid: 0, err: '目标用户不能为空（填昵称或 QQ 号）' };
-      if (/^\d+$/.test(s)) return { uid: Number(s) };
-      const uid = await this.resolveQQ(gid, s);
-      if (!uid) return { uid: 0, err: `在群 ${gid} 里找不到叫「${s}」的成员（确认昵称、改用 QQ 号，或在记忆里记一下这个外号对应谁）` };
-      return { uid };
-    };
-    /** 通用：调用 OneBot action，吞掉异常返回可读错误。 */
-    const api = async (action: string, params: Record<string, unknown>): Promise<{ ok: boolean; text: string }> => {
-      const driver = this.driver;
-      if (!driver) return { ok: false, text: '未连接到 NapCat，无法执行管理员操作。' };
-      try {
-        const r: unknown = await driver.callApi(action, params);
-        return { ok: true, text: `OK (${action})` };
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        return { ok: false, text: `操作失败（${action}）：${msg}` };
-      }
-    };
-
-    const adminRecall: ToolDef = {
-      name: 'qq_admin_recall',
-      tags: ['write'],
-      barrierAfter: true,
-      description: '【群管理员·可自主】撤回一条群消息。messageId 是要撤回消息的 message_id——它显示在每条群消息文本最开头、形如「#123456」的那个数字（把 # 后面的数字填进来即可）。仅群管理员/群主可撤回，且只能撤回近 2 分钟内的消息或自己发的消息。注意：授权指挥官（控制台白名单 / 群管理员 / 群主）能命令我撤回；此外 AI 自己判断需要撤回时也可自主执行。',
-      parameters: { type: 'object', properties: { messageId: { type: 'string', description: '要撤回的 message_id，可填纯数字或「#123456」形式' }, group: { type: 'string', description: '可选，群号或 group:<群号>；不填则使用当前会话所在群' } }, required: ['messageId'] },
-      handler: async (args, ctx) => {
-        const auth = await adminAuthorize(ctx, args);
-        if (!auth.ok) return auth.text;
-        const raw = typeof args.messageId === 'string' ? args.messageId.replace(/^#/, '').trim() : String(args.messageId ?? '');
-        const messageId = Number(raw);
-        if (!Number.isFinite(messageId)) return 'messageId 无效（应为数字 message_id，例如消息开头的 #123456）。';
-        const res = await api('delete_msg', { message_id: messageId });
-        return res.text;
-      },
-    };
-
-    const adminAtAll: ToolDef = {
-      name: 'qq_admin_at_all',
-      tags: ['write'],
-      barrierAfter: true,
-      description: '【群管理员】在群里 @全体成员（需群主/管理员权限，且群开启允许 @全体成员）。text 为要附带的正文。',
-      parameters: { type: 'object', properties: { text: { type: 'string', description: '@全体时附带的正文内容' }, group: { type: 'string', description: '群号或 group:<群号>；不填用当前会话所在群' } }, required: ['text'] },
-      handler: async (args, ctx) => {
-        const auth = await adminAuthorize(ctx, args);
-        if (!auth.ok) return auth.text;
-        const text = typeof args.text === 'string' ? args.text : '';
-        const driver = this.driver;
-        if (!driver) return '未连接到 NapCat，无法发送。';
-        try {
-          await driver.callApi('send_group_msg', { group_id: auth.gid!, message: [{ type: 'at', data: { qq: 'all' } }, { type: 'text', data: { text: text ? text : '' } }] });
-          return `已向群 ${auth.gid} @全体成员。`;
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e);
-          return `发送失败：${msg}（@全体成员需要管理员权限且群设置允许）`;
+        const action = String(args.action ?? '');
+        switch (action) {
+          case 'save': {
+            const text = typeof args.text === 'string' ? args.text.trim() : '';
+            if (!text) return { error: 'text 不能为空' };
+            const r = await this.notebook.save(text);
+            const preview = text.length > 60 ? text.slice(0, 60) + '…' : text;
+            return { text: `已记到笔记本（本地）：${preview}`, ok: true, id: r.id, backend: r.backend };
+          }
+          case 'list': {
+            const entries = await this.notebook.list();
+            if (!entries.length) return { text: '笔记本还是空的，还没记过东西。', ok: true, count: 0, backend: this.notebook.backend, entries: [] };
+            const lines = entries.map((e) => `${e.seq != null ? e.seq + '. ' : '- '}${e.text}`);
+            return { text: `笔记本（本地）共 ${entries.length} 条：\n` + lines.join('\n'), ok: true, count: entries.length, backend: this.notebook.backend, entries: entries.map((e) => ({ id: e.id, text: e.text, ts: e.ts })) };
+          }
+          case 'get': {
+            const id = typeof args.id === 'string' ? args.id.trim() : '';
+            if (!id) return { error: 'id 不能为空' };
+            const e = await this.notebook.get(id);
+            if (!e) return { text: `没找到 id=${id} 的笔记。`, ok: true, found: false };
+            return { text: `笔记 #${id}：${e.text}`, ok: true, found: true, id: e.id, content: e.text, ts: e.ts };
+          }
+          case 'forget': {
+            const id = typeof args.id === 'string' ? args.id.trim() : '';
+            if (!id) return { error: 'id 不能为空' };
+            const ok = await this.notebook.forget(id);
+            return ok ? { text: `已删除笔记本 #${id}。`, ok: true, id } : { text: `没找到 id=${id} 的笔记，未删除。`, ok: true, found: false };
+          }
+          default:
+            return `未知 action：「${action}」（支持 save/list/get/forget）。`;
         }
       },
     };
 
-    const adminNotice: ToolDef = {
-      name: 'qq_admin_notice',
-      tags: ['write'],
+    const adminTool: ToolDef = {
+      name: 'qq_admin',
+      tags: ['write', 'read'],
       barrierAfter: true,
-      description: '【群管理员】发布群通知（群公告）。content 为公告正文。部分 NapCat 版本 action 名为 send_group_notice，若失败可在控制台把 worlds.qqbot.admin.noticeAction 改成 _send_group_notice。',
-      parameters: { type: 'object', properties: { content: { type: 'string', description: '群通知/公告正文' }, group: { type: 'string', description: '群号或 group:<群号>；不填用当前会话所在群' } }, required: ['content'] },
-      handler: async (args, ctx) => {
-        const auth = await adminAuthorize(ctx, args);
-        if (!auth.ok) return auth.text;
-        const content = typeof args.content === 'string' ? args.content : '';
-        if (!content.trim()) return '公告内容不能为空。';
-        const res = await api(this.config.admin.noticeAction || 'send_group_notice', { group_id: auth.gid!, content });
-        return res.text;
+      description:
+        '【群管理员】系列（用一个 action 选子功能，需 admin.enabled 开启；部分操作需授权指挥官：控制台白名单 / 群管理员 / 群主，或开启 admin.allowSelf 让 AI 自主）：' +
+        'recall=撤回一条群消息（messageId，最近2分钟内或自己发的）；' +
+        'at_all=@全体成员（text 附带正文）；' +
+        'notice=发布群公告（content）；' +
+        'join_list=列出待审核加群请求；' +
+        'join_approve=通过加群请求（flag）；' +
+        'join_reject=拒绝加群请求（flag, reason?）；' +
+        'title=设置群专属头衔（who, title）；' +
+        'ban=禁言/解禁成员（who, durationSec?）；' +
+        'ban_all=全员禁言开关（enable）；' +
+        'kick=踢出成员（who, rejectRejoin?，高影响且不可逆，默认 AI 不能自主踢人）。',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['recall', 'at_all', 'notice', 'join_list', 'join_approve', 'join_reject', 'title', 'ban', 'ban_all', 'kick'], description: '子功能，见上方描述。' },
+          messageId: { type: 'string', description: '【recall】要撤回的 message_id（纯数字或 #123456）。' },
+          text: { type: 'string', description: '【at_all/notice】@全体时的正文 / 群公告正文。' },
+          content: { type: 'string', description: '【notice】群公告正文（同 text 的语义，保留兼容）。' },
+          flag: { type: 'string', description: '【join_approve/join_reject】加群请求 flag。' },
+          reason: { type: 'string', description: '【join_reject】拒绝理由（可选）。' },
+          who: { type: 'string', description: '【title/ban/kick】成员昵称、QQ 号或外号；不填则默认最近被引用/@ 提及的人。' },
+          title: { type: 'string', description: '【title】要设置的群头衔（空字符串清除）。' },
+          durationSec: { type: 'number', description: '【ban】禁言时长（秒），默认 600，0=解禁。' },
+          enable: { type: 'boolean', description: '【ban_all】true=开启全员禁言，false=关闭。' },
+          rejectRejoin: { type: 'boolean', description: '【kick】true=踢出并拒绝再次加群（默认），false=仅踢出。' },
+          group: { type: 'string', description: '群号或 group:<群号>；不填用当前会话所在群。' },
+        },
+        required: ['action'],
       },
-    };
-
-    const adminJoinList: ToolDef = {
-      name: 'qq_admin_join_list',
-      tags: ['read'],
-      description: '【群管理员】列出当前待审核的加群请求（bot 收到的加群申请/邀请）。返回每条的 flag（审批用）、群号、申请人 QQ、留言。',
-      parameters: { type: 'object', properties: {} },
-      handler: async () => {
-        const e = adminEnabled();
-        if (e) return e;
-        if (!this.config.admin.allowJoin) return '未开启自动审核加群（在控制台开启 worlds.qqbot.admin.allowJoin 后即可处理）。';
-        if (this.pendingJoinRequests.size === 0) return '当前没有待审核的加群请求。';
-        const items = [...this.pendingJoinRequests.values()].map((r) => `#${r.flag} 群${r.groupId} 申请人QQ${r.userId}（${r.subType === 'invite' ? '邀请' : '申请'}）留言：${r.comment || '（无）'}`);
-        return '待审核加群请求：\n' + items.join('\n');
-      },
-    };
-
-    const adminJoinApprove: ToolDef = {
-      name: 'qq_admin_join_approve',
-      tags: ['write'],
-      barrierAfter: true,
-      description: '【群管理员】通过一条加群请求。flag 来自 qq_admin_join_list（如 #xxx 的 # 后部分，或直接贴完整 flag 字符串）。',
-      parameters: { type: 'object', properties: { flag: { type: 'string', description: '加群请求 flag（qq_admin_join_list 给出的 # 后字符串，或直接贴原 flag）' } }, required: ['flag'] },
       handler: async (args, ctx) => {
-        const e = adminEnabled();
-        if (e) return e;
-        if (!this.config.admin.allowJoin) return '未开启自动审核加群（在控制台开启 worlds.qqbot.admin.allowJoin 后即可处理）。';
-        const flag = typeof args.flag === 'string' ? args.flag.trim().replace(/^#/, '') : '';
-        if (!flag) return 'flag 不能为空。';
-        const req0 = this.pendingJoinRequests.get(flag);
-        if (!req0) return `没找到 flag=${flag} 的待审请求（可能已处理或已过期）。`;
-        const res = await api('set_group_add_request', { flag, sub_type: req0.subType, approve: true });
-        if (res.ok) this.pendingJoinRequests.delete(flag);
-        return res.text;
-      },
-    };
-
-    const adminJoinReject: ToolDef = {
-      name: 'qq_admin_join_reject',
-      tags: ['write'],
-      barrierAfter: true,
-      description: '【群管理员】拒绝一条加群请求。flag 来自 qq_admin_join_list；reason 为拒绝理由（可选，会通知申请人）。',
-      parameters: { type: 'object', properties: { flag: { type: 'string', description: '加群请求 flag' }, reason: { type: 'string', description: '拒绝理由（可选）' } }, required: ['flag'] },
-      handler: async (args, ctx) => {
-        const e = adminEnabled();
-        if (e) return e;
-        if (!this.config.admin.allowJoin) return '未开启自动审核加群（在控制台开启 worlds.qqbot.admin.allowJoin 后即可处理）。';
-        const flag = typeof args.flag === 'string' ? args.flag.trim().replace(/^#/, '') : '';
-        if (!flag) return 'flag 不能为空。';
-        const req0 = this.pendingJoinRequests.get(flag);
-        if (!req0) return `没找到 flag=${flag} 的待审请求（可能已处理或已过期）。`;
-        const res = await api('set_group_add_request', { flag, sub_type: req0.subType, approve: false, reason: typeof args.reason === 'string' ? args.reason : '' });
-        if (res.ok) this.pendingJoinRequests.delete(flag);
-        return res.text;
-      },
-    };
-
-    const adminTitle: ToolDef = {
-      name: 'qq_admin_title',
-      tags: ['write'],
-      barrierAfter: true,
-      description: '【群管理员】给某成员设置群专属头衔（special title）。当用户说"给 xx 设个头衔/称号"等要求时使用。who 填昵称、QQ 号或外号；省略则默认针对最近被引用或 @ 提及的人（群聊里用户说"给他设个头衔"时不填 who 也能用）。title 为头衔内容（空字符串则清除头衔）。',
-      parameters: { type: 'object', properties: { who: { type: 'string', description: '成员昵称、QQ 号或外号；不填则默认针对最近被引用/@ 提及的人' }, title: { type: 'string', description: '要设置的群头衔（空字符串清除）' }, group: { type: 'string', description: '群号或 group:<群号>；不填用当前会话所在群' } }, required: [] },
-      handler: async (args, ctx) => {
-        const auth = await adminAuthorize(ctx, args);
-        if (!auth.ok) return auth.text;
-        const gid = auth.gid!;
-        const whoProvided = typeof args.who === 'string' && args.who.trim();
-        const fb = !whoProvided ? this.fallbackTarget(gid) : null;
-        const whoRaw = whoProvided || (fb ? String(fb) : '');
-        const ru = await resolveUser(gid, whoRaw);
-        if (ru.err) return ru.err;
-        const prot = await protectTarget(gid, ru.uid, auth.callerRole);
-        if (prot) return prot;
-        const title = typeof args.title === 'string' ? args.title : '';
-        const res = await api('set_group_special_title', { group_id: gid, user_id: ru.uid, special_title: title });
-        return res.text;
-      },
-    };
-
-    const adminBan: ToolDef = {
-      name: 'qq_admin_ban',
-      tags: ['write'],
-      barrierAfter: true,
-      description: '【群管理员·需授权】禁言/解禁某成员。当用户要求"禁言 xx/让他闭嘴/解禁 xx"等时使用。who 填昵称、QQ 号或外号；省略则默认针对最近被引用或 @ 提及的人（群聊里用户说"把他禁言"时不填 who 也能用）。durationSec 为禁言秒数（默认 600，即 10 分钟；0 表示解除禁言）。注意：只有授权指挥官（控制台白名单 / 群管理员 / 群主）能命令我禁言，普通成员不行；且群主、其他管理员受保护。',
-      parameters: { type: 'object', properties: { who: { type: 'string', description: '成员昵称、QQ 号或外号；不填则默认针对最近被引用/@ 提及的人' }, durationSec: { type: 'number', description: '禁言时长（秒），默认 600，0=解禁' }, group: { type: 'string', description: '群号或 group:<群号>；不填用当前会话所在群' } }, required: [] },
-      handler: async (args, ctx) => {
-        const auth = await adminAuthorize(ctx, args);
-        if (!auth.ok) return auth.text;
-        const gid = auth.gid!;
-        const whoProvided = typeof args.who === 'string' && args.who.trim();
-        const fb = !whoProvided ? this.fallbackTarget(gid) : null;
-        const whoRaw = whoProvided || (fb ? String(fb) : '');
-        const ru = await resolveUser(gid, whoRaw);
-        if (ru.err) return ru.err;
-        const prot = await protectTarget(gid, ru.uid, auth.callerRole);
-        if (prot) return prot;
-        const dur = typeof args.durationSec === 'number' && Number.isFinite(args.durationSec) ? Math.max(0, Math.floor(args.durationSec)) : 600;
-        const res = await api('set_group_ban', { group_id: gid, user_id: ru.uid, duration: dur });
-        return res.text;
-      },
-    };
-
-    const adminBanAll: ToolDef = {
-      name: 'qq_admin_ban_all',
-      tags: ['write'],
-      barrierAfter: true,
-      description: '【群管理员】全员禁言开关。enable=true 开启全员禁言（仅群主/管理员可发言），false 关闭。',
-      parameters: { type: 'object', properties: { enable: { type: 'boolean', description: 'true=开启全员禁言，false=关闭' }, group: { type: 'string', description: '群号或 group:<群号>；不填用当前会话所在群' } }, required: ['enable'] },
-      handler: async (args, ctx) => {
-        const auth = await adminAuthorize(ctx, args);
-        if (!auth.ok) return auth.text;
-        const enable = args.enable === true;
-        const res = await api('set_group_whole_ban', { group_id: auth.gid!, enable });
-        return res.text;
-      },
-    };
-
-    const adminKick: ToolDef = {
-      name: 'qq_admin_kick',
-      tags: ['write'],
-      barrierAfter: true,
-      description: '【群管理员·需授权】把某成员踢出群聊（踢人/飞机票）。当用户要求"把 xx 踢了/踢出群/清理出去"等时使用。who 填昵称、QQ 号或外号；省略则默认针对最近被引用或 @ 提及的人（群聊里用户说"把他踢了"时不填 who 也能用）。rejectRejoin=true（默认）表示踢出并拒绝其再次加群，false 则只踢出、对方仍可重新申请。注意：踢人比禁言更重且不可逆，只有授权指挥官（控制台白名单 / 群管理员 / 群主）能命令我执行，默认 AI 不能自主踢人（控制台开启 admin.allowSelfKick 可放行）；群主、其他管理员受保护，不能踢自己。',
-      parameters: { type: 'object', properties: { who: { type: 'string', description: '成员昵称、QQ 号或外号；不填则默认针对最近被引用/@ 提及的人' }, rejectRejoin: { type: 'boolean', description: 'true=踢出并拒绝再次加群（默认），false=仅踢出' }, group: { type: 'string', description: '群号或 group:<群号>；不填用当前会话所在群' } }, required: [] },
-      handler: async (args, ctx) => {
-        const auth = await adminAuthorize(ctx, args);
-        if (!auth.ok) return auth.text ?? '未授权执行该管理操作。';
-        const gid = auth.gid!;
-        // 踢人比其他管理操作更重：默认不认「无人下令、bot 自主」这条路径（需控制台显式放行）。
-        if (auth.callerRole === 'self' && !this.config.admin.allowSelfKick) {
-          return '踢人属于高影响且不可逆的操作，需要授权指挥官（白名单/群管理员/群主）在对话里明确下令；AI 不能自主踢人（控制台开启 admin.allowSelfKick 可放行）。';
+        const action = String(args.action ?? '');
+        switch (action) {
+          case 'recall': {
+            const auth = await adminAuthorize(ctx, args);
+            if (!auth.ok) return auth.text;
+            const raw = typeof args.messageId === 'string' ? args.messageId.replace(/^#/, '').trim() : String(args.messageId ?? '');
+            const messageId = Number(raw);
+            if (!Number.isFinite(messageId)) return 'messageId 无效（应为数字 message_id，例如消息开头的 #123456）。';
+            const res = await api('delete_msg', { message_id: messageId });
+            return res.text;
+          }
+          case 'at_all': {
+            const auth = await adminAuthorize(ctx, args);
+            if (!auth.ok) return auth.text;
+            const text = typeof args.text === 'string' ? args.text : '';
+            const driver = this.driver;
+            if (!driver) return '未连接到 NapCat，无法发送。';
+            try {
+              await driver.callApi('send_group_msg', { group_id: auth.gid!, message: [{ type: 'at', data: { qq: 'all' } }, { type: 'text', data: { text: text ? text : '' } }] });
+              return `已向群 ${auth.gid} @全体成员。`;
+            } catch (e) {
+              const msg = e instanceof Error ? e.message : String(e);
+              return `发送失败：${msg}（@全体成员需要管理员权限且群设置允许）`;
+            }
+          }
+          case 'notice': {
+            const auth = await adminAuthorize(ctx, args);
+            if (!auth.ok) return auth.text;
+            const content = typeof args.content === 'string' ? args.content : (typeof args.text === 'string' ? args.text : '');
+            if (!content.trim()) return '公告内容不能为空。';
+            const res = await api(this.config.admin.noticeAction || 'send_group_notice', { group_id: auth.gid!, content });
+            return res.text;
+          }
+          case 'join_list': {
+            const e = adminEnabled();
+            if (e) return e;
+            if (!this.config.admin.allowJoin) return '未开启自动审核加群（在控制台开启 worlds.qqbot.admin.allowJoin 后即可处理）。';
+            if (this.pendingJoinRequests.size === 0) return '当前没有待审核的加群请求。';
+            const items = [...this.pendingJoinRequests.values()].map((r) => `#${r.flag} 群${r.groupId} 申请人QQ${r.userId}（${r.subType === 'invite' ? '邀请' : '申请'}）留言：${r.comment || '（无）'}`);
+            return '待审核加群请求：\n' + items.join('\n');
+          }
+          case 'join_approve': {
+            const e = adminEnabled();
+            if (e) return e;
+            if (!this.config.admin.allowJoin) return '未开启自动审核加群（在控制台开启 worlds.qqbot.admin.allowJoin 后即可处理）。';
+            const flag = typeof args.flag === 'string' ? args.flag.trim().replace(/^#/, '') : '';
+            if (!flag) return 'flag 不能为空。';
+            const req0 = this.pendingJoinRequests.get(flag);
+            if (!req0) return `没找到 flag=${flag} 的待审请求（可能已处理或已过期）。`;
+            const res = await api('set_group_add_request', { flag, sub_type: req0.subType, approve: true });
+            if (res.ok) this.pendingJoinRequests.delete(flag);
+            return res.text;
+          }
+          case 'join_reject': {
+            const e = adminEnabled();
+            if (e) return e;
+            if (!this.config.admin.allowJoin) return '未开启自动审核加群（在控制台开启 worlds.qqbot.admin.allowJoin 后即可处理）。';
+            const flag = typeof args.flag === 'string' ? args.flag.trim().replace(/^#/, '') : '';
+            if (!flag) return 'flag 不能为空。';
+            const req0 = this.pendingJoinRequests.get(flag);
+            if (!req0) return `没找到 flag=${flag} 的待审请求（可能已处理或已过期）。`;
+            const res = await api('set_group_add_request', { flag, sub_type: req0.subType, approve: false, reason: typeof args.reason === 'string' ? args.reason : '' });
+            if (res.ok) this.pendingJoinRequests.delete(flag);
+            return res.text;
+          }
+          case 'title': {
+            const auth = await adminAuthorize(ctx, args);
+            if (!auth.ok) return auth.text;
+            const gid = auth.gid!;
+            const whoProvided = typeof args.who === 'string' && args.who.trim();
+            const fb = !whoProvided ? this.fallbackTarget(gid) : null;
+            const whoRaw = whoProvided || (fb ? String(fb) : '');
+            const ru = await resolveUser(gid, whoRaw);
+            if (ru.err) return ru.err;
+            const prot = await protectTarget(gid, ru.uid, auth.callerRole);
+            if (prot) return prot;
+            const title = typeof args.title === 'string' ? args.title : '';
+            const res = await api('set_group_special_title', { group_id: gid, user_id: ru.uid, special_title: title });
+            return res.text;
+          }
+          case 'ban': {
+            const auth = await adminAuthorize(ctx, args);
+            if (!auth.ok) return auth.text;
+            const gid = auth.gid!;
+            const whoProvided = typeof args.who === 'string' && args.who.trim();
+            const fb = !whoProvided ? this.fallbackTarget(gid) : null;
+            const whoRaw = whoProvided || (fb ? String(fb) : '');
+            const ru = await resolveUser(gid, whoRaw);
+            if (ru.err) return ru.err;
+            const prot = await protectTarget(gid, ru.uid, auth.callerRole);
+            if (prot) return prot;
+            const dur = typeof args.durationSec === 'number' && Number.isFinite(args.durationSec) ? Math.max(0, Math.floor(args.durationSec)) : 600;
+            const res = await api('set_group_ban', { group_id: gid, user_id: ru.uid, duration: dur });
+            return res.text;
+          }
+          case 'ban_all': {
+            const auth = await adminAuthorize(ctx, args);
+            if (!auth.ok) return auth.text;
+            const enable = args.enable === true;
+            const res = await api('set_group_whole_ban', { group_id: auth.gid!, enable });
+            return res.text;
+          }
+          case 'kick': {
+            const auth = await adminAuthorize(ctx, args);
+            if (!auth.ok) return auth.text ?? '未授权执行该管理操作。';
+            const gid = auth.gid!;
+            if (auth.callerRole === 'self' && !this.config.admin.allowSelfKick) {
+              return '踢人属于高影响且不可逆的操作，需要授权指挥官（白名单/群管理员/群主）在对话里明确下令；AI 不能自主踢人（控制台开启 admin.allowSelfKick 可放行）。';
+            }
+            const whoProvided = typeof args.who === 'string' && args.who.trim();
+            const fb = !whoProvided ? this.fallbackTarget(gid) : null;
+            const whoRaw = whoProvided || (fb ? String(fb) : '');
+            if (!whoRaw) return '未指定要踢出的人：请给出昵称、QQ 号或外号，或在群里 @ / 引用该成员后再让我踢。';
+            const ru = await resolveUser(gid, whoRaw);
+            if (ru.err) return ru.err;
+            if (ru.uid === this.identity?.selfId) return '不能把我自己踢出群（换个人吧）。';
+            const prot = await protectTarget(gid, ru.uid, auth.callerRole);
+            if (prot) return prot;
+            const reject = typeof args.rejectRejoin === 'boolean' ? args.rejectRejoin : this.config.admin.kickRejectRejoin;
+            const res = await api('set_group_kick', { group_id: gid, user_id: ru.uid, reject_add_request: reject });
+            return res.ok ? `已把 ${ru.uid} 踢出群 ${gid}${reject ? '（并拒绝其再次加群）' : ''}。` : res.text;
+          }
+          default:
+            return `未知 action：「${action}」（支持 recall/at_all/notice/join_list/join_approve/join_reject/title/ban/ban_all/kick）。`;
         }
-        const whoProvided = typeof args.who === 'string' && args.who.trim();
-        const fb = !whoProvided ? this.fallbackTarget(gid) : null;
-        const whoRaw = whoProvided || (fb ? String(fb) : '');
-        if (!whoRaw) return '未指定要踢出的人：请给出昵称、QQ 号或外号，或在群里 @ / 引用该成员后再让我踢。';
-        const ru = await resolveUser(gid, whoRaw);
-        if (ru.err) return ru.err;
-        if (ru.uid === this.identity?.selfId) return '不能把我自己踢出群（换个人吧）。';
-        const prot = await protectTarget(gid, ru.uid, auth.callerRole);
-        if (prot) return prot;
-        const reject = typeof args.rejectRejoin === 'boolean' ? args.rejectRejoin : this.config.admin.kickRejectRejoin;
-        const res = await api('set_group_kick', { group_id: gid, user_id: ru.uid, reject_add_request: reject });
-        return res.ok ? `已把 ${ru.uid} 踢出群 ${gid}${reject ? '（并拒绝其再次加群）' : ''}。` : res.text;
       },
     };
 
-    const tools: ToolDef[] = [forwardById, send, confirm, viewImage, stickerStats, stickerToFavorites, proactiveStatus, proactiveTrigger, qzonePost, qzoneDelete, qzoneReply, qzoneFeeds, qzoneStatus, poke, reminderAdd, reminderList, reminderCancel, noteSave, noteList, noteGet, noteForget, adminRecall, adminAtAll, adminNotice, adminJoinList, adminJoinApprove, adminJoinReject, adminTitle, adminBan, adminBanAll, adminKick, ...makeHistoryTools({
+    /*
+     * 组装所有工具。
+     */
+
+    const tools: ToolDef[] = [forwardById, send, confirm, viewImage, stickerStats, stickerToFavorites, proactiveTool, qzoneTool, poke, reminderTool, noteTool, adminTool, ...makeHistoryTools({
       getHost: () => this.host,
       sourceId: SOURCE,
       timezone: this.config.timezone,

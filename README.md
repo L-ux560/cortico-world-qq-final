@@ -24,13 +24,13 @@ Cortico 的 **QQ（OneBot v11 / NapCat）** World 扩展。以 `fat-fish` 仓库
 | 环境提示词 | — | ✅ 增量吸收 | `envPromptVars` + `ENV_PROMPT.md` |
 | 通知事件 | 撤回/退群等 | ✅ 增量吸收 | recall / member / poke / emoji |
 | 被动视觉(VLM) | — | ✅ 增量吸收（默认关） | 可选 OpenAI 兼容端点描述图片 |
-| 历史查询 | — | ✅ 增量吸收 | `qq_recent` / `qq_search` |
-| QQ 空间动态（说说） | — | ✅ 增量吸收 | 自动/手动发表、附图、@、回评、删除（`qq_qzone_*`） |
+| 历史查询 | — | ✅ 增量吸收 | `qq_history（action=recent）` / `qq_history（action=search）` |
+| QQ 空间动态（说说） | — | ✅ 增量吸收 | 自动/手动发表、附图、@、回评、删除（`qq_qzone（action=post/delete/reply/feeds/status）`） |
 | 群聊发言频率限制 | — | ✅ 增量吸收 | 每个群在滑动窗口内可发消息总量的硬上限（含主动与回复），防刷屏 |
 | 话题自动结束 / 防死循环 | — | ✅ 增量吸收 | 单会话 bot 连续发言超上限、或对方长时间静默则自动收尾；主动说话还按话题相似度去重，防反复换汤不换药 |
 | 情绪系统（全局心情） | `emotion.py` | ➡️ 已拆到 `cortico-bot-qq-persona` | 情绪/好感度/外号三块 bot 内部状态自 `0.5.0` 起迁移到独立 Persona 扩展 `cortico-bot-qq-persona`，装它即可获得 `qq_mood` / `qq_affinity_*` / `qq_alias_*` 工具与系统前缀注入 |
 | AI 作息（睡眠/午休/活跃） | — | ✅ 增量吸收 | 按真实时间切换三段：睡眠段暂停主动冒泡（被动回复照常）、午休段放缓主动节奏、活跃段正常；时段切换由 LLM 现场生成随性播报（非固定套话） |
-| 闹钟 / 记事本 | — | ✅ 新增 | 让智能体把"需要定时做的事 / 约定"记下来（`qq_reminder_add`），到点自动在该会话提醒（`qq_reminder_list` 查、`qq_reminder_cancel` 删）；落盘持久化、跨重启不丢 |
+| 闹钟 / 记事本 | — | ✅ 新增 | 让智能体把"需要定时做的事 / 约定"记下来（`qq_reminder（action=add）`），到点自动在该会话提醒（`qq_reminder（action=list）` 查、`qq_reminder（action=cancel）` 删）；落盘持久化、跨重启不丢 |
 | 好感度（关系分） | — | ✅ 新增 | 对**每个用户独立**维护一份好感度（-100~100，可正可负、随互动上下浮动，不是只增不减）；`qq_affinity_adjust` 加减、`qq_affinity_get` 查、`qq_affinity_list` 总览；当前用户好感度会**自动注入对话上下文**，影响语气与分寸 |
 | 语音（ASR + TTS） | — | ✅ 新增 | 听语音（ASR 转文字）+ 说语音（TTS）。**供应商可插拔**，内置 `native`（OneBot 原生，零依赖）、`custom`（远程 OpenAI 兼容端点 + API Key）、`local`（本地/自建模型如 VoxCPM2 经 vLLM-Omni，免 Key、慢推理可加超时、支持额外参数透传）；是否说话由语义判定决定，并非每条都念 |
 
@@ -58,14 +58,14 @@ Cortico 的 **QQ（OneBot v11 / NapCat）** World 扩展。以 `fat-fish` 仓库
 | `vision.endpoint` / `vision.apiKeySecret` / `vision.model` | `""` | 开启辅助视觉后**三项必填**。密钥只写名字（如 `DEEPSEEK_API_KEY`），值放在部署密钥库（.env）里，由框架 `secret()` 读取 |
 | `qzone.enabled` | `false` | 启用 QQ 空间动态（说说）功能 |
 | `qzone.systemPrompt` | 中性占位（见下） | 发表/回评时的第一人称人设（默认中性占位，实际人设由部署级 ORIENTATION 决定） |
-| `qzone.endpoint` / `qzone.apiKeySecret` / `qzone.model` | `""` | 生成动态/评论的 OpenAI 兼容端点、密钥名（值在部署密钥库）、模型名。**开启自动动态或自动评论后三项必填**；`qq_qzone_post` 显式传 `content` 时不需要 |
+| `qzone.endpoint` / `qzone.apiKeySecret` / `qzone.model` | `""` | 生成动态/评论的 OpenAI 兼容端点、密钥名（值在部署密钥库）、模型名。**开启自动动态或自动评论后三项必填**；`qq_qzone（action=post）` 显式传 `content` 时不需要 |
 | `qzone.tickSec` / `qzone.chancePerTick` | `900` / `0.15` | 后台自动冒泡间隔(秒)与每次触发概率 |
 | `qzone.dailyQuota` | `5` | 每日自动发表上限 |
 | `qzone.permission` | `1` | 动态可见范围（0=公开/1=好友/...，取决于 NapCat） |
 | `qzone.imageMode` | `none` | `none`=不带图 / `recent`=附上最近一张收到/发出的图 |
 | `qzone.autoReplyComments.enabled` | `false` | 收到空间评论时自动回复 |
 | `qzone.autoReplyComments.chance` | `0.5` | 单条评论自动回复概率 |
-| `qzone.commentAction` | `send_qzone_comment` | 回评所用的 OneBot action 名（NapCat 可能为其它名，可改）。**v0.6.0 起评论回复改为事件驱动（主模型经 qq_qzone_reply 回复），不再用第二模型** |
+| `qzone.commentAction` | `send_qzone_comment` | 回评所用的 OneBot action 名（NapCat 可能为其它名，可改）。**v0.6.0 起评论回复改为事件驱动（主模型经 qq_qzone（action=reply） 回复），不再用第二模型** |
 | `proactive.endpoint` / `proactive.apiKeySecret` / `proactive.model` | 已移除 | **v0.6.0 起主动说话改为事件驱动**：不再单独调用 LLM，改由主模型在收到主动说话事件后生成并发送，这些第二模型配置项已删除 |
 | `proactive.dailyQuota` | `20` | 每日主动消息上限（0=不限）。`topicSimilarity`/`tokenLimit` 等第二模型相关配置项已随 0.6.0 移除 |
 | `groupSpeak.enabled` | `true` | 群聊发言频率限制开关（含主动与回复） |
@@ -86,7 +86,7 @@ Cortico 的 **QQ（OneBot v11 / NapCat）** World 扩展。以 `fat-fish` 仓库
 | `routine.greetSleep` / `routine.greetWake` / `routine.greetLazy` | 见源码默认值 | 时段切换时的**兜底**文案：正常播报由 LLM 现场生成（每次说法不固定），仅当生成失败才回退到这几句；留空=无兜底直接跳过 |
 | `reminder.enabled` | `true` | **到点提醒**开关。开启后到点自动把提醒发到对应会话；记录/查询/取消不受此开关影响（始终可用）|
 | `affinity.enabled` | `true` | **好感度系统**开关。开启后，与该用户对话时其当前好感度会自动注入上下文、影响态度与分寸；`qq_affinity_*` 工具始终可用 |
-| `admin.enabled` | `false` | **群管理员能力**开关。开启后可在群里执行管理员操作（群撤回 / @全体成员 / 发群通知 / 审核进群 / 给予群头衔 / 禁言 / 全员禁言）。需要 bot 是群管理员或群主，否则 QQ 会拒绝操作；`qq_admin_*` 工具始终可用，关闭时返回「功能未开启」|
+| `admin.enabled` | `false` | **群管理员能力**开关。开启后可在群里执行管理员操作（群撤回 / @全体成员 / 发群通知 / 审核进群 / 给予群头衔 / 禁言 / 全员禁言）。需要 bot 是群管理员或群主，否则 QQ 会拒绝操作；`qq_admin（action=recall/at_all/notice/join_*/title/ban/ban_all/kick）` 工具始终可用，关闭时返回「功能未开启」|
 | `voice.enabled` | `false` | **语音（ASR+TTS）**开关 |
 | `voice.provider` | `native` | 语音供应商（实现方式）。可选项由 `src/voice.ts` 注册表动态生成：`native`=OneBot 原生 `translate_record`/`tts`（零依赖、开箱即用）；`custom`=用「网址+API Key」对接远程 OpenAI 兼容音频服务（GLM/OpenAI/自建等）；`local`=本地/自建模型（OpenAI 兼容、免 API Key、慢推理可加超时、支持额外参数做声音克隆/设计，如 VoxCPM2 经 vLLM-Omni）；`voxcpm`=本地 VoxCPM2 TTS 服务（自有接口 `GET /health`+`POST /tts`，免 Key、音色用自然语言描述，仅做 TTS、收语音回退 `native` 识别，如 Fat-Fish 的 `vox_tts_server.py`）。新增供应商只需在 `voice.ts` 用 `registerVoiceProvider` 注册 |
 | `voice.asr` | `true` | 开启语音识别（收到语音→转文字） |
@@ -137,13 +137,13 @@ Cortico 的 **QQ（OneBot v11 / NapCat）** World 扩展。以 `fat-fish` 仓库
 
 让智能体把"以后要做的事 / 约定"记下来，到点自动提醒，相当于它的随身备忘录 + 闹钟。
 
-- **记提醒**：对话中用户说"提醒我三点开会""帮我记一下明天还书"，智能体调用 `qq_reminder_add`，并给出时间（`when`）和内容（`text`）。时间支持多种写法：
+- **记提醒**：对话中用户说"提醒我三点开会""帮我记一下明天还书"，智能体调用 `qq_reminder（action=add）`，并给出时间（`when`）和内容（`text`）。时间支持多种写法：
   - 绝对 ISO：`2026-09-24T15:00`
   - `HH:MM`（今天；已过则顺延明天）、`明天 9:00`、`今天 21:30`
   - 相对：`in 30m`、`30分钟后`、`2小时后`、`3天后`
   - 调用成功会返回 `id` 与解析后的时间，智能体应把"已记好、几点提醒"回给用户。
 - **到点自动提醒**：后台每 30 秒扫描一次，到期未完成的提醒会自动发到**记录它时所在的那个会话**（群或私聊），文案形如 `⏰ 到点提醒：<内容>`；并把"我之前记的提醒到点了"回灌进上下文，便于它接话/确认。离线期间到期的提醒，重启后会自动补发。
-- **查看 / 取消**：`qq_reminder_list` 列出所有待提醒（id、内容、时间），`qq_reminder_cancel` 按 id 取消。
+- **查看 / 取消**：`qq_reminder（action=list）` 列出所有待提醒（id、内容、时间），`qq_reminder（action=cancel）` 按 id 取消。
 - **持久化**：所有提醒落盘 `dataDir/reminders.json`，跨整机重启不丢。
 - **开关**：`reminder.enabled`（默认开）只控制"到点自动发提醒"；记录/查询/取消始终可用。可在控制台实时开关（`x-hot`）。
 - 控制台"闹钟/记事本"状态灯会显示当前待提醒条数。
@@ -252,16 +252,16 @@ interface VoiceProvider {
 
 - `qq_send`：**发送一条消息**到当前会话（群或私聊）。默认立即发出；参数 `confirm=true` 时改为起草模式——内容先以「草稿」出现在回复里，等你下一轮说「确认/算了」再决定发不发。
 - `qq_confirm_send`：确认并真正发送草稿（带 `barrierAfter`，防止连续误发）。
-- `qq_recent`：查询某群/私聊最近消息。
-- `qq_search`：按关键词检索历史消息。
-- `qq_reminder_add`：添加一条到点提醒（`content` 内容、`when` 如 `20:30` 或 ` tomorrow 8:00` 或 ISO 时间、可填 `who` 给指定人）。到点自动发到对应会话，带优雅超时控制。
-- `qq_reminder_list`：列出当前待触发的提醒。
-- `qq_reminder_cancel`：取消一条提醒（`id` 或 `all=true` 取消全部）。
-- `qq_qzone_post`：发表 QQ 空间动态（说说）。支持 `content`（正文）、`topic`（话题）、`images`（图片数组）、`ats`（@ 的 QQ 号数组）、`permission`（可见范围）。正文由 LLM 依据对话与记忆以第一人称自动生成；`content` 留空时由人设驱动。
-- `qq_qzone_delete`：删除指定 `tid` 的动态。
-- `qq_qzone_reply`：回复某条动态的评论（`tid` + `comment_id` + `content`）。
-- `qq_qzone_feeds`：拉取自己的空间动态列表（`num`）。
-- `qq_qzone_status`：返回空间功能开关、今日已发数/配额、待回评等状态。
+- `qq_history（action=recent）`：查询某群/私聊最近消息。
+- `qq_history（action=search）`：按关键词检索历史消息。
+- `qq_reminder（action=add）`：添加一条到点提醒（`content` 内容、`when` 如 `20:30` 或 ` tomorrow 8:00` 或 ISO 时间、可填 `who` 给指定人）。到点自动发到对应会话，带优雅超时控制。
+- `qq_reminder（action=list）`：列出当前待触发的提醒。
+- `qq_reminder（action=cancel）`：取消一条提醒（`id` 或 `all=true` 取消全部）。
+- `qq_qzone（action=post）`：发表 QQ 空间动态（说说）。支持 `content`（正文）、`topic`（话题）、`images`（图片数组）、`ats`（@ 的 QQ 号数组）、`permission`（可见范围）。正文由 LLM 依据对话与记忆以第一人称自动生成；`content` 留空时由人设驱动。
+- `qq_qzone（action=delete）`：删除指定 `tid` 的动态。
+- `qq_qzone（action=reply）`：回复某条动态的评论（`tid` + `comment_id` + `content`）。
+- `qq_qzone（action=feeds）`：拉取自己的空间动态列表（`num`）。
+- `qq_qzone（action=status）`：返回空间功能开关、今日已发数/配额、待回评等状态。
 - 群聊发言限速 / 话题防死循环在 `qq_send` 发送环节统一生效：当某群达到窗口上限，或某会话 bot 连续发言超限/对方久未接话时，`qq_send` 会返回「未能发送：…（发言频率已达上限 / 话题自动收尾）」而不是真正发出。这是正常节流，不是报错。
 - **语音工具 / 命令**：
   - 收语音：QQ 语音消息经 `voice.provider` 指定的 ASR 后（如 `native` 的 `translate_record`、或 OpenAI 兼容 `/audio/transcriptions`）转成文字进入对话；SILK 等编码能否被识别取决于所选供应商（QQ 语音多为 SILK，`native` 由 NapCat 服务端解码最稳，`custom`/`local` 一般要 wav/mp3/flac）。
@@ -279,22 +279,22 @@ interface VoiceProvider {
   - `qq_affinity_list`：按好感度从高到低列出所有人（qq / 昵称 / 分数 / 状态 / 上次原因）。
   - 当前用户好感度会以"关系备忘"形式自动注入对话上下文（受 `affinity.enabled` 控制），bot 据此调节语气分寸。
 - **智能体私人笔记本（notebook）**：让 AI 记录自己想记的东西，独立于聊天/记忆系统之外。**只落本插件 `dataDir/notebook.jsonl`（本地后端）**。
-  - `qq_note_save`：记一条笔记（`text` 必填）。若同时安装了 `cortico-world-memory`，请优先用它的 `mem_note`/`mem_notes`/`mem_forget_note`（常驻环境提示词 + 混合检索）——两边功能重复，本笔记不参与检索。
-  - `qq_note_list`：列出全部笔记，返回编号/条目 id 与内容。
-  - `qq_note_get`：按 id 查看某条笔记完整内容。
-  - `qq_note_forget`：按 id 删除一条笔记。
+  - `qq_note（action=save）`：记一条笔记（`text` 必填）。若同时安装了 `cortico-world-memory`，请优先用它的 `mem_note`/`mem_notes`/`mem_forget_note`（常驻环境提示词 + 混合检索）——两边功能重复，本笔记不参与检索。
+  - `qq_note（action=list）`：列出全部笔记，返回编号/条目 id 与内容。
+  - `qq_note（action=get）`：按 id 查看某条笔记完整内容。
+  - `qq_note（action=forget）`：按 id 删除一条笔记。
 
-- **群管理员能力（admin）**：当 bot 账号是群管理员 / 群主时，可在群里执行后台管理操作。功能总开关 `admin.enabled`（默认关，控制台热开启）。开关仅控制是否真正执行，`qq_admin_*` 工具始终可用（关闭时返回「功能未开启」）。所有操作需要 bot 具备对应管理员权限，否则 QQ 会拒绝（返回具体错误）。
-  - `qq_admin_recall`：撤回一条群消息（`messageId` 为要撤回消息的 `message_id`，仅能撤回近 2 分钟内或自己发的消息）。
-  - `qq_admin_at_all`：在群里 **@全体成员** 并附正文（`text`）。需要群开启允许 @全体成员。
-  - `qq_admin_notice`：发布**群通知 / 群公告**（`content`）。底层 OneBot action 由 `admin.noticeAction` 配置（默认 `send_group_notice`；若你的 NapCat 版本用 `_send_group_notice`，在控制台改 `worlds.qqbot.admin.noticeAction` 即可）。
-  - `qq_admin_join_list`：列出当前**待审核的加群请求**（来自收到的加群申请 / 邀请事件），返回每条的 `flag`、群号、申请人 QQ、留言。
-  - `qq_admin_join_approve`：通过一条加群请求（`flag` 来自 `qq_admin_join_list`）。
-  - `qq_admin_join_reject`：拒绝一条加群请求（`flag` + 可选 `reason`）。
-  - `qq_admin_title`：给成员设置**群专属头衔**（`who` + `title`，`title` 为空则清除）。
-  - `qq_admin_ban`：**禁言**某成员（`who` + `durationSec`，默认 600 秒，0 表示解禁）。
-  - `qq_admin_ban_all`：**全员禁言**开关（`enable` = true 开启、false 关闭）。
-  - `qq_admin_kick`：【群管理员·需授权】把某成员踢出群聊（踢人/飞机票）。`who` 填昵称、QQ 号或外号；省略则默认针对最近被引用或 @ 提及的人。`rejectRejoin=true`（默认）表示踢出并拒绝其再次加群。
+- **群管理员能力（admin）**：当 bot 账号是群管理员 / 群主时，可在群里执行后台管理操作。功能总开关 `admin.enabled`（默认关，控制台热开启）。开关仅控制是否真正执行，`qq_admin（action=recall/at_all/notice/join_*/title/ban/ban_all/kick）` 工具始终可用（关闭时返回「功能未开启」）。所有操作需要 bot 具备对应管理员权限，否则 QQ 会拒绝（返回具体错误）。
+  - `qq_admin（action=recall）`：撤回一条群消息（`messageId` 为要撤回消息的 `message_id`，仅能撤回近 2 分钟内或自己发的消息）。
+  - `qq_admin（action=at_all）`：在群里 **@全体成员** 并附正文（`text`）。需要群开启允许 @全体成员。
+  - `qq_admin（action=notice）`：发布**群通知 / 群公告**（`content`）。底层 OneBot action 由 `admin.noticeAction` 配置（默认 `send_group_notice`；若你的 NapCat 版本用 `_send_group_notice`，在控制台改 `worlds.qqbot.admin.noticeAction` 即可）。
+  - `qq_admin（action=join_list）`：列出当前**待审核的加群请求**（来自收到的加群申请 / 邀请事件），返回每条的 `flag`、群号、申请人 QQ、留言。
+  - `qq_admin（action=join_approve）`：通过一条加群请求（`flag` 来自 `qq_admin（action=join_list）`）。
+  - `qq_admin（action=join_reject）`：拒绝一条加群请求（`flag` + 可选 `reason`）。
+  - `qq_admin（action=title）`：给成员设置**群专属头衔**（`who` + `title`，`title` 为空则清除）。
+  - `qq_admin（action=ban）`：**禁言**某成员（`who` + `durationSec`，默认 600 秒，0 表示解禁）。
+  - `qq_admin（action=ban_all）`：**全员禁言**开关（`enable` = true 开启、false 关闭）。
+  - `qq_admin（action=kick）`：【群管理员·需授权】把某成员踢出群聊（踢人/飞机票）。`who` 填昵称、QQ 号或外号；省略则默认针对最近被引用或 @ 提及的人。`rejectRejoin=true`（默认）表示踢出并拒绝其再次加群。
   - 群参数 `group` 支持「群号」或 `group:<群号>`；不填则使用当前会话所在群。成员参数 `who` 支持昵称（自动按群内昵称解析）或 QQ 号。
 
 ## 外号记忆（alias）
@@ -311,8 +311,8 @@ interface VoiceProvider {
 
 ## 主动说话调度器
 
-- `qq_proactive_status`：查看调度器状态——运行态（暖场/稳定/静默）、今日已发/配额、各会话的未回复与静默情况、最近主动说过的话。
-- `qq_proactive_trigger`：手动触发一次主动说话（随机挑一个可主动的监听会话，或用 `address` 指定如 `private:123`），便于测试。
+- `qq_proactive（action=status）`：查看调度器状态——运行态（暖场/稳定/静默）、今日已发/配额、各会话的未回复与静默情况、最近主动说过的话。
+- `qq_proactive（action=trigger）`：手动触发一次主动说话（随机挑一个可主动的监听会话，或用 `address` 指定如 `private:123`），便于测试。
 
 ## 表情包与视觉
 
@@ -335,8 +335,8 @@ interface VoiceProvider {
   - 当 `cortico-world-memory` 记忆插件启用时，笔记走记忆插件的笔记库 `qq` scope：享受常驻环境提示词（记忆插件会把 `qq` scope 笔记并入 agent 的上下文）与混合检索（BM25 + 向量 + RRF）；同一台机器上多个 world 共享记忆库。
   - 当记忆插件未安装或未启用时，自动回退到本插件的原生 JSONL 文件：`<dataDir>/notebook.jsonl`，每条用稳定字符串 id（`n_<时间戳>_<随机>`）标识，完全离线、无外部依赖。
   - 路由在**每次调用时惰性判定**，与 world 启动顺序无关：即使记忆插件中途启/停，笔记也能正确切换后端，不会写错地方。
-- **工具**：`qq_note_save` / `qq_note_list` / `qq_note_get` / `qq_note_forget`（见上方「工具」节）。`qq_note_save` 的返回会告诉模型当前记到了哪个后端（`memory` / `native`）。
-- **典型用法**：在对话中模型自发调用 `qq_note_save` 记下灵感；想回顾时 `qq_note_list` 列出、`qq_note_get` 看详情；确定不再需要时 `qq_note_forget` 删除。
+- **工具**：`qq_note（action=save）` / `qq_note（action=list）` / `qq_note（action=get）` / `qq_note（action=forget）`（见上方「工具」节）。`qq_note（action=save）` 的返回会告诉模型当前记到了哪个后端（`memory` / `native`）。
+- **典型用法**：在对话中模型自发调用 `qq_note（action=save）` 记下灵感；想回顾时 `qq_note（action=list）` 列出、`qq_note（action=get）` 看详情；确定不再需要时 `qq_note（action=forget）` 删除。
 - **与闹钟/记事本的区别**：闹钟/记事本（`reminder`）是带时间的提醒，会被触发；笔记本是纯「想记就记」的随手记，不会被主动触发，只被动查询/注入（记忆插件模式下）。
 
 ## 接入教程
@@ -379,7 +379,7 @@ interface VoiceProvider {
 
 ## 与 cortico-world-memory 的关系（可选，非依赖）
 
-「智能体私人笔记本」（`qq_note_*` 工具）只写入本扩展自己的 `dataDir/notebook.jsonl`，**开箱即用、不需要装任何东西**。
+「智能体私人笔记本」（`qq_note（action=save/list/get/forget）` 工具）只写入本扩展自己的 `dataDir/notebook.jsonl`，**开箱即用、不需要装任何东西**。
 
 若同时安装了 [`cortico-world-memory`](https://www.npmjs.com/package/cortico-world-memory)，它的 `mem_note`/`mem_notes`/`mem_forget_note` 与本笔记本功能重复——模型应优先用前者（常驻环境提示词 + 混合检索）。两者数据互不相通，也没有任何耦合：本扩展不 import、不探测、不调用该插件（认证评审 #104 明确要求 World 之间不得直接调用）。
 
@@ -396,5 +396,5 @@ interface VoiceProvider {
 - 辅助视觉默认关闭。开启需自备一个 OpenAI 兼容 VLM 服务：在配置里填好 `vision.endpoint` / `vision.apiKeySecret` / `vision.model` 三项（密钥值放部署密钥库）。注意这与默认开启的「图片作为模型附件」是**两条看图的路**，同时开会重复花钱——主模型本身能看图时，关掉辅助视觉即可。
 - QQ 空间功能依赖 NapCat 的 `send_qzone_msg` / `delete_qzone_msg`；部分 NapCat 版本未暴露空间 API，开启后调用会失败（可在控制台看错误）。
 - 回评 action 名（默认 `send_qzone_comment`）按 NapCat 版本不同可能变化，失败请在控制台改 `qzone.commentAction`。
-- `qq_qzone_feeds` 拉取列表为 best-effort，取决于 NapCat 是否实现 `get_qzone_msg_list`；取不到时返回空。
-- 动态文案生成需在配置里填好 `qzone.endpoint` / `qzone.apiKeySecret` / `qzone.model` 三项（开启自动动态/自动评论后必填；`qq_qzone_post` 显式传 `content` 时不需要模型）；未配置时不会自动发动态，工具调用会返回明确提示。
+- `qq_qzone（action=feeds）` 拉取列表为 best-effort，取决于 NapCat 是否实现 `get_qzone_msg_list`；取不到时返回空。
+- 动态文案生成需在配置里填好 `qzone.endpoint` / `qzone.apiKeySecret` / `qzone.model` 三项（开启自动动态/自动评论后必填；`qq_qzone（action=post）` 显式传 `content` 时不需要模型）；未配置时不会自动发动态，工具调用会返回明确提示。

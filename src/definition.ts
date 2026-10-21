@@ -22,113 +22,33 @@ const TOOL_SUMMARIES: Record<string, DescribeText> = {
     zh: '查看已收藏表情包的统计与真实文件名,发图前先取文件名。',
     en: 'List collected stickers with their real filenames, needed before replying with one.',
   },
-  qq_proactive_status: {
-    zh: '查看主动说话调度器的状态、今日配额与近期主动发言。',
-    en: 'Show the proactive-speaking scheduler state, daily quota and recent unsolicited messages.',
+  qq_proactive: {
+    zh: '主动说话调度器:查状态(status)或手动触发一次(trigger)。',
+    en: 'Proactive-speaking scheduler: check status or fire one manually.',
   },
-  qq_proactive_trigger: {
-    zh: '手动触发一次主动说话,用于测试。',
-    en: 'Fire one proactive message manually, mainly for testing.',
-  },
-  qq_qzone_post: {
-    zh: '在 QQ 空间发一条动态(说说)。',
-    en: 'Publish a post to the QQ Zone timeline.',
-  },
-  qq_qzone_delete: {
-    zh: '删除一条 QQ 空间动态。',
-    en: 'Delete one QQ Zone post.',
-  },
-  qq_qzone_reply: {
-    zh: '回复某条动态下的一条评论。',
-    en: 'Reply to a comment under a QQ Zone post.',
-  },
-  qq_qzone_feeds: {
-    zh: '查看自己的 QQ 空间动态列表。',
-    en: 'List your own QQ Zone posts.',
-  },
-  qq_qzone_status: {
-    zh: '查看空间发布器的开关、配额与最近动态(tid)。',
-    en: 'Show the Zone publisher enable flag, quota and recent posts with their tid.',
+  qq_qzone: {
+    zh: 'QQ 空间动态:发(post)/删(delete)/回评论(reply)/列动态(feeds)/看状态(status)。',
+    en: 'QQ Zone: post / delete / reply to comment / list feeds / show status.',
   },
   qq_poke: {
     zh: '戳一戳某个人(群内或私聊)。',
     en: 'Poke someone, in a group or privately.',
   },
-  qq_reminder_add: {
-    zh: '记一个定时提醒或闹钟,到点自动在该会话提醒。',
-    en: 'Set a timed reminder or alarm that fires back into that conversation.',
+  qq_reminder: {
+    zh: '定时提醒/闹钟(也是记事本):记(add)/列(list)/取消(cancel)。',
+    en: 'Timed reminder / alarm (also a notepad): add / list / cancel.',
   },
-  qq_reminder_list: {
-    zh: '列出所有未触发的提醒/记事。',
-    en: 'List every reminder that has not fired yet.',
+  qq_note: {
+    zh: '私人笔记本:写(save)/列(list)/查(get)/删(forget),落本地 notebook.jsonl。',
+    en: 'Private notebook: save / list / get / forget, stored in local notebook.jsonl.',
   },
-  qq_reminder_cancel: {
-    zh: '取消并删除一条提醒。',
-    en: 'Cancel and delete a reminder.',
+  qq_admin: {
+    zh: '【群管理员】撤回/@全体/公告/审加群/头衔/禁言/全员禁言/踢人,用一个 action 选子功能。',
+    en: 'Group admin: recall / mention-all / notice / review joins / title / mute / whole-mute / kick, picked by one action.',
   },
-  qq_note_save: {
-    zh: '把你长期想记住的事写进私人笔记本。',
-    en: 'Write something you want to keep into your private notebook.',
-  },
-  qq_note_list: {
-    zh: '列出笔记本里的全部条目。',
-    en: 'List every entry in the notebook.',
-  },
-  qq_note_get: {
-    zh: '按 id 查看某条笔记本内容。',
-    en: 'Read one notebook entry by id.',
-  },
-  qq_note_forget: {
-    zh: '删除一条笔记本。',
-    en: 'Delete one notebook entry.',
-  },
-  qq_admin_recall: {
-    zh: '【群管理员】撤回一条群消息。',
-    en: 'Recall one group message (admin).',
-  },
-  qq_admin_at_all: {
-    zh: '【群管理员】在群里 @全体成员。',
-    en: 'Mention everyone in the group (admin).',
-  },
-  qq_admin_notice: {
-    zh: '【群管理员】发布群公告。',
-    en: 'Publish a group announcement (admin).',
-  },
-  qq_admin_join_list: {
-    zh: '【群管理员】列出待审核的加群请求。',
-    en: 'List pending join requests awaiting review (admin).',
-  },
-  qq_admin_join_approve: {
-    zh: '【群管理员】通过一条加群请求。',
-    en: 'Approve one join request (admin).',
-  },
-  qq_admin_join_reject: {
-    zh: '【群管理员】拒绝一条加群请求。',
-    en: 'Reject one join request (admin).',
-  },
-  qq_admin_title: {
-    zh: '【群管理员】给成员设置群专属头衔。',
-    en: 'Set a member special title (admin).',
-  },
-  qq_admin_ban: {
-    zh: '【群管理员·需授权】禁言或解禁某成员。',
-    en: 'Mute or unmute a member (admin, needs authorization).',
-  },
-  qq_admin_ban_all: {
-    zh: '【群管理员】开启或关闭全员禁言。',
-    en: 'Turn group-wide mute on or off (admin).',
-  },
-  qq_admin_kick: {
-    zh: '【群管理员·需授权】把成员踢出群聊。',
-    en: 'Kick a member out of the group (admin, needs authorization).',
-  },
-  qq_recent: {
-    zh: '回看某会话最近的聊天记录。',
-    en: 'Read the recent chat log of one conversation.',
-  },
-  qq_search: {
-    zh: '在历史聊天记录里按关键词搜索。',
-    en: 'Search chat history by keyword.',
+  qq_history: {
+    zh: '聊天历史:查最近消息(recent)或关键词检索(search)。',
+    en: 'Chat history: recent messages or keyword search.',
   },
 };
 

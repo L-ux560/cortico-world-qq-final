@@ -6,7 +6,7 @@ import type { Logger } from 'cortico/core/types.ts';
  * 智能体私人笔记本（本地后端）。
  *
  * 曾经经一个全局桥接键把笔记写入 cortico-world-memory 的笔记库。认证评审
- * （Pal-AI-Lab/cortico-extensions#104）指出：World 之间不得直接调用，且 `qq_note_*`
+ * （Pal-AI-Lab/cortico-extensions#104）指出：World 之间不得直接调用，且 `qq_note`
  * 与记忆扩展自带的 `mem_note`/`mem_notes`/`mem_forget_note` 功能重复——两个都装时
  * 模型直接用后者即可。**桥接已移除**，本笔记本只写本地 `notebook.jsonl`，
  * 不 import、不探测任何其他 World。

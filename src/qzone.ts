@@ -1,8 +1,8 @@
 // QQ 空间（事件驱动版）。
 //
 // 设计：本模块**不再调用任何第二模型**（独立的 LLM 地址/密钥/模型）。
-// - 自动发动态：调度器到点只推一条 nudge 事件，由主模型用 qq_qzone_post 工具发布（content 须由主模型显式给出）。
-// - 评论自动回复：收到评论后推一条 nudge 事件，由主模型用 qq_qzone_reply 工具回复。
+// - 自动发动态：调度器到点只推一条 nudge 事件，由主模型用 qq_qzone（action=post） 工具发布（content 须由主模型显式给出）。
+// - 评论自动回复：收到评论后推一条 nudge 事件，由主模型用 qq_qzone（action=reply） 工具回复。
 // 这样动态/评论的内容都由主模型决定，语气与人格一致，且不需要单独的模型配置。
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -113,7 +113,7 @@ export class QZonePoster {
     }
   }
 
-  /** 发动态：content 须由调用方（主模型经 qq_qzone_post）显式提供。删除了"模型自动生成"路径。 */
+  /** 发动态：content 须由调用方（主模型经 qq_qzone（action=post））显式提供。删除了"模型自动生成"路径。 */
   async post(opts: { content: string; images?: string[]; topic?: string; permission?: string }): Promise<QZonePostResult> {
     if (!this.cfg.enabled) return { ok: false, error: 'QQ 空间未启用（先在控制台开 worlds.qqbot.qzone.enabled）。' };
     const content = (opts.content || '').trim();
@@ -137,7 +137,7 @@ export class QZonePoster {
     return { ok: true, tid, text: content };
   }
 
-  /** 回复某条评论（由主模型经 qq_qzone_reply 调用）。 */
+  /** 回复某条评论（由主模型经 qq_qzone（action=reply） 调用）。 */
   async replyComment(commentId: string, text: string, tid?: string): Promise<{ ok: true } | { ok: false; error: string }> {
     if (!commentId) return { ok: false, error: '缺少 commentId。' };
     const res = await this.callApi('qzone.replyComment', { commentId, text, tid });
@@ -183,7 +183,7 @@ export class QZonePoster {
       text: `QQ空间评论 ${p.operatorNick ? '(' + p.operatorNick + ')' : ''}：${p.text ?? ''}`,
       meta: { conv: `qzone:${tid}`, tid, commentId },
     });
-    // 2) 自动回复：事件驱动（请主模型调 qq_qzone_reply），不再用第二模型生成
+    // 2) 自动回复：事件驱动（请主模型调 qq_qzone（action=reply）），不再用第二模型生成
     if (this.cfg.commentAction !== 'auto' || !this.cfg.autoReplyComments.enabled) return;
     this.rolloverDay();
     const now = Date.now();
@@ -192,7 +192,7 @@ export class QZonePoster {
     this.state.lastReplyAt = now;
     this.state.replyDailyCount += 1;
     this.save();
-    const nudge = `你的 QQ 空间动态下，@${p.operatorNick || '对方'} 评论说：「${p.text ?? ''}」。请用 qq_qzone_reply 工具回复这条评论（tid=${tid}, comment_id=${commentId}），自然一句话，可带 emoji，别客套别太长。`;
+    const nudge = `你的 QQ 空间动态下，@${p.operatorNick || '对方'} 评论说：「${p.text ?? ''}」。请用 qq_qzone（action=reply） 工具回复这条评论（tid=${tid}, comment_id=${commentId}），自然一句话，可带 emoji，别客套别太长。`;
     this.requestLLM(nudge, 'reply', { tid, commentId });
   }
 
@@ -204,7 +204,7 @@ export class QZonePoster {
     if (Math.random() >= this.cfg.chancePerTick) return;
     const ctx = this.getContext().slice(-3000);
     const nudge =
-      `请你以第一人称主动发一条 QQ 空间动态（说说），可用 qq_qzone_post 工具发布。` +
+      `请你以第一人称主动发一条 QQ 空间动态（说说），可用 qq_qzone（action=post） 工具发布。` +
       `内容像你自己真实的朋友圈碎碎念：对最近聊天里某件事/某个人发表真实看法、吐槽、安利或简介，或分享当下心情。` +
       `自然、有梗、带点小情绪，1-3 句最佳，最多不超 100 字，可带少量 emoji，不要客服腔。` +
       (ctx ? `\n\n【最近聊天取材】\n${ctx}` : '');

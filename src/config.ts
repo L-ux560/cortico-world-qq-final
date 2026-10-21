@@ -191,9 +191,9 @@ export interface QQWorldConfig {
    *  默认 local + funasr（SenseVoiceSmall，中文更准，自动从 ModelScope 下载）；后续可切 228MB 的 sherpa-onnx 版（更省内存）。 */
   asr: QQAsrConfig;
   /** 群管理员能力：群撤回 / @全体成员 / 发群通知 / 审核进群 / 给予群头衔 / 禁言（及全员禁言）/ 踢出群聊。
-   *  需要 bot 账号是对应群的管理员或群主，否则 QQ 会拒绝操作。qq_admin_* 工具始终注册，此开关决定是否生效。 */
+   *  需要 bot 账号是对应群的管理员或群主，否则 QQ 会拒绝操作。qq_admin 工具始终可用（用一个 action 选子功能），此开关决定是否生效。 */
   admin: {
-    /** 是否启用群管理员能力。关闭则所有 qq_admin_* 工具返回“功能未开启”，不执行任何操作。 */
+    /** 是否启用群管理员能力。关闭则qq_admin 工具返回“功能未开启”，不执行任何操作。 */
     enabled: boolean;
     /** 发群通知（公告）使用的 OneBot action 名。不同 NapCat 版本可能为 send_group_notice 或 _send_group_notice。 */
     noticeAction: string;
@@ -222,7 +222,7 @@ export interface QQWorldConfig {
     protectAdmins: boolean;
     /**
      * 允许 bot 自行处理加群请求（通过/拒绝），而无需某个人在对话里指挥。默认 true。
-     * 设为 false 则 qq_admin_join_approve/reject 返回“未开启自动审核”。
+     * 设为 false 则 qq_admin（action=join_approve/reject） 返回“未开启自动审核”。
      */
     allowJoin: boolean;
     /**
@@ -485,14 +485,14 @@ export const QQ_CONFIG_GROUP: ConfigGroup = {
       'worlds.qqbot.routine.greetWake': { type: 'string', title: '醒来播报(兜底)', 'x-hot': true, description: '离开睡眠段的兜底文案：正常由 LLM 生成，失败才回退。空=无兜底。' },
       'worlds.qqbot.routine.greetLazy': { type: 'string', title: '午休播报(兜底)', 'x-hot': true, description: '进入午休段的兜底文案：正常由 LLM 生成，失败才回退。空=无兜底。' },
       'worlds.qqbot.reminder.enabled': { type: 'boolean', title: '到点提醒', 'x-hot': true, description: '开启后，记下的定时提醒会在到点时自动发到对应会话；记录/查询/取消不受此开关影响（始终可用）。' },
-      'worlds.qqbot.admin.enabled': { type: 'boolean', title: '群管理员能力', 'x-hot': true, description: '开启后可在群里执行管理员操作：群撤回 / @全体成员 / 发群通知 / 审核进群 / 给予群头衔 / 禁言（及全员禁言）/ 踢出群聊。需要 bot 是群管理员或群主，否则 QQ 会拒绝。qq_admin_* 工具始终可用，关闭则提示“功能未开启”。' },
+      'worlds.qqbot.admin.enabled': { type: 'boolean', title: '群管理员能力', 'x-hot': true, description: '开启后可在群里执行管理员操作：群撤回 / @全体成员 / 发群通知 / 审核进群 / 给予群头衔 / 禁言（及全员禁言）/ 踢出群聊。需要 bot 是群管理员或群主，否则 QQ 会拒绝。qq_admin 工具始终可用（action 选子功能：recall/at_all/notice/join_*/title/ban/ban_all/kick），关闭则提示“功能未开启”。' },
       'worlds.qqbot.admin.allowlist': { type: 'string', title: '授权指挥官(QQ号,逗号分隔)', 'x-hot': true, description: '白名单：这些 QQ 号的人可在对话里命令 bot 执行管理员操作（撤消息/禁言等），不受群身份限制。多个用逗号分隔，如 123456,654321。留空=不单独授权任何人。' },
       'worlds.qqbot.admin.allowGroupAdmins': { type: 'boolean', title: '允许群管/群主指挥', 'x-hot': true, description: '为 true 时，群里的管理员/群主在对话里发话即可指挥 bot 执行管理操作。设为 false 则只有白名单里的人能指挥。' },
       'worlds.qqbot.admin.ownerOnly': { type: 'boolean', title: '仅群主可指挥', 'x-hot': true, description: '为 true 时，即便“允许群管指挥”开启，也只有群主（外加白名单）能命令 bot，普通管理员不行。' },
       'worlds.qqbot.admin.protectOwner': { type: 'boolean', title: '保护群主(禁撤/禁言)', 'x-hot': true, description: '为 true 时，任何人（含管理员）都不能用 bot 撤回/禁言群主。' },
       'worlds.qqbot.admin.protectAdmins': { type: 'boolean', title: '保护管理员(仅群主可动)', 'x-hot': true, description: '为 true 时，只有群主能用 bot 撤回/禁言另一名管理员。' },
-      'worlds.qqbot.admin.allowJoin': { type: 'boolean', title: 'bot自动审加群', 'x-hot': true, description: '为 true 时 bot 可自行通过/拒绝加群请求（qq_admin_join_* 可用）；为 false 则这两个工具返回“未开启自动审核”。' },
-      'worlds.qqbot.admin.allowSelf': { type: 'boolean', title: 'AI可自主管理', 'x-hot': true, description: '为 true 时，bot（AI 本人）可自行判断并执行管理操作（撤回/禁言/公告等），无需某个人下令。为 false 则仅“授权指挥官”（白名单/群管/群主）能触发，普通成员无法让 bot 行动，但 bot 也不会在有人刚发言的会话里自主管理。群主/管理员始终受 protectOwner/protectAdmins 保护。注意：踢人（qq_admin_kick）不受此项放行，由“AI可自主踢人”单独控制。' },
+      'worlds.qqbot.admin.allowJoin': { type: 'boolean', title: 'bot自动审加群', 'x-hot': true, description: '为 true 时 bot 可自行通过/拒绝加群请求（qq_admin（action=join_*） 可用）；为 false 则这两个工具返回“未开启自动审核”。' },
+      'worlds.qqbot.admin.allowSelf': { type: 'boolean', title: 'AI可自主管理', 'x-hot': true, description: '为 true 时，bot（AI 本人）可自行判断并执行管理操作（撤回/禁言/公告等），无需某个人下令。为 false 则仅“授权指挥官”（白名单/群管/群主）能触发，普通成员无法让 bot 行动，但 bot 也不会在有人刚发言的会话里自主管理。群主/管理员始终受 protectOwner/protectAdmins 保护。注意：踢人（qq_admin 的 action=kick）不受此项放行，由“AI可自主踢人”单独控制。' },
       'worlds.qqbot.admin.allowSelfKick': { type: 'boolean', title: 'AI可自主踢人', 'x-hot': true, description: '为 true 时，bot 可自行判断把成员踢出群（无需人下令）。默认 false：踢人不可逆，只认“授权指挥官”（白名单/群管理员/群主）在对话里明确下令，普通成员与 AI 自主都不行。群主/管理员仍受 protectOwner/protectAdmins 保护。' },
       'worlds.qqbot.admin.kickRejectRejoin': { type: 'boolean', title: '踢人时拒绝再加群', 'x-hot': true, description: '为 true（默认）时，踢出群聊的同时附带“拒绝该用户再次加群”。为 false 则只踢出，对方仍可重新申请（能否进来取决于审核设置）。' },
       'worlds.qqbot.allowPrivateRedirect': { type: 'boolean', title: '允许私聊分流', 'x-hot': true, description: '为 true 时，群里若话题涉及隐私 / 尴尬 / 敏感，bot 可把回复改为私聊发送给当事人（而非群里公开）：qq_send 对 private:<QQ> 目标会跳过监听名单限制，直接向该群成员私聊。为 false 则只能在群里回复，无法私聊分流。' },

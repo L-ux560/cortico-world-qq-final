@@ -4,6 +4,19 @@
 
 规则：每版本一个二级标题，标题里的第一个版本号即为本节版本。
 
+## 0.6.7
+
+工具合并（减少 bot 可见工具数量、降低模型选工具负担；框架原生支持 `action` 枚举参数）：
+- 把 6 个「同族」工具各自合并为单个工具，子功能用 `action` 枚举参数暴露（保留全部原有行为/鉴权/保护逻辑）：
+  - `qq_qzone_*`（post/delete/reply/feeds/status）-> `qq_qzone`，新增 `action` 参数。
+  - `qq_reminder_*`（add/list/cancel）-> `qq_reminder`。
+  - `qq_note_*`（save/list/get/forget）-> `qq_note`。
+  - `qq_admin_*`（recall/at_all/notice/join_list/join_approve/join_reject/title/ban/ban_all/kick）-> `qq_admin`，新增 `action` 参数；授权指挥官/白名单/protectOwner/protectAdmins 保护全部保留。
+  - `qq_proactive_*`（status/trigger）-> `qq_proactive`。
+  - `qq_recent` + `qq_search` -> `qq_history`（action=recent/search）。
+- bot 可见工具：33 -> 13（`qq_send` / `qq_confirm_send` / `qq_view_image` / `qq_sticker_stats` / `qq_sticker_to_favorites` / `qq_forward_by_id` / `qq_poke` 保持不变）。
+- 重新生成 describe.json（tools 13, events 8, prompts 1）；README 工具文档同步更新为 action 写法。
+
 ## 0.6.6
 
 新增「表情包同步到 QQ 收藏表情」能力（用户诉求：在 SnowLuma 拉起的 QQ 客户端里也能看到 bot 收藏的表情包）：
