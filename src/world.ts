@@ -102,7 +102,7 @@ export class QQWorld implements World {
   private proactive: ProactiveSpeaker | null = null;
   private qzone: QZonePoster | null = null;
   private connected = false;
-  /** sendTo 因限速/防死循环而拦截时返回的字符串前缀，便于 qq_send 工具区分“已发送”与“被拦截”。 */
+  /** sendTo 因限速/防死循环而拦截时返回的字符串前缀，便于 qq_send 工具区分"已发送"与"被拦截"。 */
   private static readonly SEND_BLOCKED = '[send blocked] ';
   /** sendTo 因 NapCat 断连/图片获取失败等导致部分或全部段发送失败时返回的字符串前缀。 */
   private static readonly SEND_FAILED = '[send failed] ';
@@ -120,7 +120,7 @@ export class QQWorld implements World {
   /** 本进程已处理过的 message_id（去重，防止 NapCat 重投导致同一消息回两遍）。仅内存。 */
   private readonly processedIds = new Set<string>();
   /**
-   * 兜底自动回复状态。当一条“应当回复”的入站消息（私聊 / 被 @ 的群消息）触发了本轮，
+   * 兜底自动回复状态。当一条"应当回复"的入站消息（私聊 / 被 @ 的群消息）触发了本轮，
    * 而模型最终没有调用 qq_send 就把文本当成了回复（纯文字回答 → 控制台有、QQ 收不到），
    * 我们在回合收束时把模型生成的文本自动发往来源会话，避免漏发。
    */
@@ -136,7 +136,7 @@ export class QQWorld implements World {
   private reminderTimer: ReturnType<typeof setInterval> | undefined = undefined;
   /** 智能体私人笔记本：只落本地 notebook.jsonl（不再桥接其他 World）。 */
   private notebook!: Notebook;
-  // 发送去重：记录同会话最近一次实际发出的归一化文本，6s 内完全相同则跳过（防“一句话回复两遍”）。
+  // 发送去重：记录同会话最近一次实际发出的归一化文本，6s 内完全相同则跳过（防"一句话回复两遍"）。
   private dedupSends = new Map<string, { norm: string; ts: number }>();
   /** 状态持久化目录（来自 ctx.dataDir），用于跨重启重建 knownMessages（防串台索引）。 */
   private dataDir = '';
@@ -373,7 +373,7 @@ export class QQWorld implements World {
     this.qzone.start();
   }
 
-  /** 取最近一段聊天上下文（文本），供动态生成“有话可说”。 */
+  /** 取最近一段聊天上下文（文本），供动态生成"有话可说"。 */
   private qzoneContext(): string {
     try {
       const events = (this.host?.store?.range?.({ source: SOURCE, limit: 60 }) ?? []) as Array<{ text?: string }>;
@@ -796,8 +796,8 @@ export class QQWorld implements World {
   }
 
   /**
-   * 到点自动提醒：扫描所有到期未完成提醒，发到对应会话，并把“已提醒”回灌进上下文
-   * （让 bot 记得自己提醒过、便于接话）。注意：提醒只是“到点说一声”，到底做不做、怎么做，
+   * 到点自动提醒：扫描所有到期未完成提醒，发到对应会话，并把"已提醒"回灌进上下文
+   * （让 bot 记得自己提醒过、便于接话）。注意：提醒只是"到点说一声"，到底做不做、怎么做，
    * 由 bot 自己根据情境判断决定——不强求执行，也不反复催促。bot 睡眠/暂停时不阻止提醒（约定到点了该响）。
    */
   private async checkReminders(): Promise<void> {
@@ -816,7 +816,7 @@ export class QQWorld implements World {
       } else {
         this.log.warn('提醒缺少发送地址，已跳过发送', { id: r.id, text: r.text });
       }
-      // 回灌上下文：注明提醒到点已发出，并点明“做不做由我自己看着办”，避免模型误以为必须执行/反复催。
+      // 回灌上下文：注明提醒到点已发出，并点明"做不做由我自己看着办"，避免模型误以为必须执行/反复催。
       try {
         this.host?.pushEvent({
           type: 'qq.message',
@@ -1017,7 +1017,7 @@ export class QQWorld implements World {
     if (!right || right === `私聊${id}`) return { text }; // 连真名都不知道就不动，免得改错
     const own = new Set(this.nameVariantsFor(id).map((n) => n.toLowerCase()));
     // 只看开头（跳过引号/括号等装饰），避免正文里正常提到别人的名字被误改。
-    const lead = text.replace(/^[\s"'“”‘’「」『』【】（）()\[\]<>《》@]+/, '');
+    const lead = text.replace(/^[\s"'""''「」『』【】（）()\[\]<>《》@]+/, '');
     const wrong = this.otherPersonNames(id).find((n) => !own.has(n.toLowerCase()) && lead.startsWith(n));
     if (!wrong) return { text };
     const idx = text.indexOf(wrong);
@@ -1095,7 +1095,7 @@ export class QQWorld implements World {
     const conv = this.ensureConv(kind, id);
     conv.lastMessageAt = Date.now();
     this.proactive?.notifyReply(conv.address);
-    // 收到对方发言：清零该会话的“bot 连续发言”计数，并刷新最后发言时间（防死循环）。
+    // 收到对方发言：清零该会话的"bot 连续发言"计数，并刷新最后发言时间（防死循环）。
     this.botStreak.set(conv.address, 0);
     this.lastUserMsgAt.set(conv.address, Date.now());
     const sender = this.resolveSender(ev, kind, id);
@@ -1310,7 +1310,7 @@ export class QQWorld implements World {
     // 也会给 message_id，这里补上入站消息，使「引用消息」功能完整闭环。
     const idTag = ev.message_id != null ? `#${ev.message_id} ` : '';
     this.log.info('HANDLE_PUSH pre kind=' + conv.kind);
-    // 记录“应当回复”的会话，供回合收束时兜底自动发送（模型若只输出文本未调 qq_send）。
+    // 记录"应当回复"的会话，供回合收束时兜底自动发送（模型若只输出文本未调 qq_send）。
     if (conv.kind === 'private' || atMe) this._pendingReplyConvs.add(conv.address);
     try {
       await host.pushEvent({
@@ -1378,7 +1378,7 @@ export class QQWorld implements World {
   }
 
   /**
-   * 输出流接收器：实时累积模型本轮的“正文”文本（仅 output_text.delta，不含思考链/拒答）。
+   * 输出流接收器：实时累积模型本轮的"正文"文本（仅 output_text.delta，不含思考链/拒答）。
    * 用于回合收束时兜底把模型文本自动发往应回复的会话。
    */
   outputTap() {
@@ -1394,14 +1394,14 @@ export class QQWorld implements World {
   }
 
   /**
-   * 回合收束钩子（框架在每轮结束都调用，含“模型只输出文本未调工具”的路径）。
-   * 若本轮由“应回复”的入站消息触发、且模型没有对该会话调用 qq_send，
-   * 则把模型生成的文本自动发往来源会话，避免“控制台有回复、QQ 收不到”。
+   * 回合收束钩子（框架在每轮结束都调用，含"模型只输出文本未调工具"的路径）。
+   * 若本轮由"应回复"的入站消息触发、且模型没有对该会话调用 qq_send，
+   * 则把模型生成的文本自动发往来源会话，避免"控制台有回复、QQ 收不到"。
    */
   onTurnEnded(): void {
     const buf = this._tapBuf.trim();
     const pending = [...this._pendingReplyConvs];
-    // 仅当“单一待回复会话且本轮未对其发送、且有文本”时兜底，避免多消息歧义或串轮误发。
+    // 仅当"单一待回复会话且本轮未对其发送、且有文本"时兜底，避免多消息歧义或串轮误发。
     if (pending.length === 1) {
       const conv = pending[0];
       if (!this._sentThisTurn.has(conv) && buf) {
@@ -1579,7 +1579,7 @@ export class QQWorld implements World {
       .then((nodes) => {
         if (!this.host) return;
         const rendered = nodes.map((n) => this.renderForwardNode(n));
-        // 合并转发自身节点塌缩补回（NapCat 常把“你转发的内容”单独成段但省略身份，需补全为“你”）
+        // 合并转发自身节点塌缩补回（NapCat 常把"你转发的内容"单独成段但省略身份，需补全为"你"）
         if (this.identity && !rendered.some((n) => n.userId != null && Number(n.userId) === this.identity!.selfId)) {
           rendered.unshift({
             line: `你(${this.identity.selfId}): （你在转发里发的内容）`,
@@ -1649,14 +1649,14 @@ export class QQWorld implements World {
     if (!al.enabled) return null;
     const streak = this.botStreak.get(address) ?? 0;
     let lastUser = this.lastUserMsgAt.get(address);
-    // 私聊 idle 收尾改看该用户（QQ 号）的全局活跃度：人在群里活跃也应视为“未失联”，
+    // 私聊 idle 收尾改看该用户（QQ 号）的全局活跃度：人在群里活跃也应视为"未失联"，
     // 否则会出现「私聊沉默但一直群里说话」仍被永久收尾拦住私聊的误伤。
     if (address.startsWith('private:')) {
       const qq = Number(address.slice('private:'.length));
       const lastByQQ = Number.isFinite(qq) ? this.lastUserMsgAtByQQ.get(qq) : undefined;
       if (lastByQQ != null && (lastUser == null || lastByQQ > lastUser)) lastUser = lastByQQ;
     }
-    // 没有“对方发言基线”时不启用 idle 收尾，否则会话启动后 bot 发第一条就会被永久拦住
+    // 没有"对方发言基线"时不启用 idle 收尾，否则会话启动后 bot 发第一条就会被永久拦住
     const sinceUser = lastUser == null ? -1 : Date.now() - lastUser;
     if (streak >= al.maxConsecutiveBotTurns) {
       return QQWorld.SEND_BLOCKED + `该会话已连续发言 ${streak} 次，自动结束话题（等对方先开口再继续）。`;
@@ -1765,7 +1765,7 @@ export class QQWorld implements World {
     }
     const tail = ids.length ? `（message_id: ${ids.join(', ')}，可用 #编号 引用回复）` : '';
     if (ok < total) {
-      // 部分/全部失败：返回明确失败标记，便于 qq_send 识别并真实地报告“未发送”（而非误报“已发送”）。
+      // 部分/全部失败：返回明确失败标记，便于 qq_send 识别并真实地报告"未发送"（而非误报"已发送"）。
       return QQWorld.SEND_FAILED + `已向 ${this.convLabel(address)} 发送 ${ok}/${total} 段（有 ${total - ok} 段发送失败，可能因 NapCat 断连或图片获取失败）。${tail}`;
     }
     return `已向 ${this.convLabel(address)} 发送 ${ok}/${total} 段。${tail}`;
@@ -2116,7 +2116,7 @@ export class QQWorld implements World {
           return `未能发送（编号 ${id}）到 ${this.convLabel(address)}：${res.slice(QQWorld.SEND_BLOCKED.length)}\n${rid !== undefined ? `（引用回复 #${rid} 未发出）\n` : ''}`;
         }
         if (res.startsWith(QQWorld.SEND_FAILED)) {
-          // 如实报告“未发送”，不让模型/用户误以为已发出；failed:true 让模型知道可重试。
+          // 如实报告"未发送"，不让模型/用户误以为已发出；failed:true 让模型知道可重试。
           return {
             text: `未能发送（编号 ${id}）到 ${this.convLabel(address)}：${res.slice(QQWorld.SEND_FAILED.length)}\n（QQ 上没有收到这条消息，NapCat 可能断连或图片获取失败，稍后可重试）`,
             failed: true,
@@ -2276,14 +2276,14 @@ export class QQWorld implements World {
         'post=发一条动态（说说，content 必填，可附图 images / @人 ats / 权限 permission）；' +
         'delete=删除一条动态（tid）；reply=回复某条动态下的评论（tid+comment_id+content）；' +
         'feeds=查看自己的动态列表（num）；status=查看发布器状态（开关/配额/最近动态 tid）。' +
-        'content 必须由你（主模型）显式给出：按“最近聊天 + 真实看法”以第一人称写，自然有梗，1-3 句；' +
-        '不要空泛、不要“我帮你记下了”这类托管语气。',
+        'content 必须由你（主模型）显式给出：按"最近聊天 + 真实看法"以第一人称写，自然有梗，1-3 句；' +
+        '不要空泛、不要"我帮你记下了"这类托管语气。',
       parameters: {
         type: 'object',
         properties: {
           action: { type: 'string', enum: ['post', 'delete', 'reply', 'feeds', 'status'], description: '子功能：post 发动态 / delete 删动态 / reply 回评论 / feeds 列动态 / status 看状态。' },
           content: { type: 'string', description: '【post】动态正文（必填）：以第一人称写，结合最近聊天与记忆发表真实看法/吐槽/简介/心情。' },
-          topic: { type: 'string', description: '可选方向提示，如“吐槽最近的天气”“介绍一下小明”。' },
+          topic: { type: 'string', description: '可选方向提示，如"吐槽最近的天气""介绍一下小明"。' },
           images: { type: 'array', items: { type: 'string' }, description: '【post】附图链接数组（仅支持 http(s):// 与 base64://；不支持本机文件）。' },
           ats: { type: 'array', items: { type: 'string' }, description: '【post】@的人：昵称或 QQ 号数组。' },
           permission: { type: 'number', description: '【post】可见权限 ugc_right，默认 1=公开。' },
@@ -2420,7 +2420,7 @@ export class QQWorld implements World {
         type: 'object',
         properties: {
           action: { type: 'string', enum: ['add', 'list', 'cancel'], description: '子功能：add 记提醒 / list 列提醒 / cancel 取消。' },
-          text: { type: 'string', description: '【add】要提醒的内容，例如“提醒我三点开会”。' },
+          text: { type: 'string', description: '【add】要提醒的内容，例如"提醒我三点开会"。' },
           when: { type: 'string', description: '【add】提醒时间，支持 ISO、HH:MM、明天 9:00、in 30m、30分钟后 等（给未来时间）。' },
           address: { type: 'string', description: '可选，提醒发到哪个会话（group:群号 / private:QQ），默认当前会话。' },
           scope: { type: 'string', description: '可选，备注（谁的事 / 相关人）。' },
@@ -2437,7 +2437,7 @@ export class QQWorld implements World {
             if (!text) return { error: 'text 不能为空' };
             const when = parseWhen(whenStr);
             if (when == null) {
-              return { error: `无法解析时间：“${whenStr}”。支持 ISO、HH:MM、明天 9:00、in 30m、30分钟后 等。` };
+              return { error: `无法解析时间："${whenStr}"。支持 ISO、HH:MM、明天 9:00、in 30m、30分钟后 等。` };
             }
             if (when <= Date.now()) return { error: '这个时间已经过去了，请给一个未来的时间。' };
             const address = typeof args.address === 'string' && args.address.trim() ? args.address.trim() : ctx.role;
@@ -2681,11 +2681,47 @@ export class QQWorld implements World {
       },
     };
 
+    const stickerTag: ToolDef = {
+      name: 'qq_sticker_tag',
+      tags: ['write', 'read'],
+      barrierAfter: true,
+      description:
+        '修改某张已收藏表情包的标注（情感 emotion / 用处 usage / 短标签 tag / 显示名 label），并持久化保存。\n' +
+        '用途：自动标注不准（如情感写成「未知」）或你想按自己的习惯整理表情库时，用本工具改标注；改完后 qq_sticker_stats 里看到的就是新标注。\n' +
+        '先调 qq_sticker_stats 拿到真实文件名（如 sticker-xxxx.jpg），再调本工具指定要改的字段；只传想改的字段，其余保持不变。文件名也接受 [表情包:sticker-xxxx.jpg] 写法。',
+      parameters: {
+        type: 'object',
+        properties: {
+          file: { type: 'string', description: '表情包文件名（来自 qq_sticker_stats），如 sticker-abc123.jpg。' },
+          emotion: { type: 'string', description: '可选：新的情感标签（如 开心/撒娇/嘲讽/无奈）。' },
+          usage: { type: 'string', description: '可选：新的适用场景（如 回应夸奖/表达无语）。' },
+          tag: { type: 'string', description: '可选：新的 2-4 字短标签。' },
+          label: { type: 'string', description: '可选：新的显示短名。' },
+        },
+        required: ['file'],
+      },
+      handler: async (args) => {
+        this.log.info('调用 qq_sticker_tag');
+        if (!this.stickers) return '表情包收藏未启用，无法修改标注。';
+        const file = typeof args.file === 'string' ? args.file : '';
+        if (!file.trim()) return '请指定要修改的文件名（可先调 qq_sticker_stats 查询）。';
+        const patch: { emotion?: string; usage?: string; tag?: string; label?: string } = {};
+        if (typeof args.emotion === 'string' && args.emotion.trim()) patch.emotion = args.emotion;
+        if (typeof args.usage === 'string' && args.usage.trim()) patch.usage = args.usage;
+        if (typeof args.tag === 'string' && args.tag.trim()) patch.tag = args.tag;
+        if (typeof args.label === 'string' && args.label.trim()) patch.label = args.label;
+        if (!Object.keys(patch).length) return '没有传入任何要修改的字段（emotion/usage/tag/label 至少填一个）。';
+        const m = this.stickers.updateMeta(file, patch);
+        if (!m) return `没有找到表情包「${file}」，请先用 qq_sticker_stats 查看已有表情包的真实文件名。`;
+        return `已更新标注并保存：[表情包:${m.file}] ${m.label}（情感:${m.emotion} / 用处:${m.usage}${m.tag ? ' / 标签:' + m.tag : ''}）`;
+      },
+    };
+
     /*
      * 组装所有工具。
      */
 
-    const tools: ToolDef[] = [forwardById, send, confirm, viewImage, stickerStats, stickerToFavorites, proactiveTool, qzoneTool, poke, reminderTool, noteTool, adminTool, ...makeHistoryTools({
+    const tools: ToolDef[] = [forwardById, send, confirm, viewImage, stickerStats, stickerToFavorites, stickerTag, proactiveTool, qzoneTool, poke, reminderTool, noteTool, adminTool, ...makeHistoryTools({
       getHost: () => this.host,
       sourceId: SOURCE,
       timezone: this.config.timezone,

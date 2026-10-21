@@ -22,6 +22,10 @@ const TOOL_SUMMARIES: Record<string, DescribeText> = {
     zh: '查看已收藏表情包的统计与真实文件名,发图前先取文件名。',
     en: 'List collected stickers with their real filenames, needed before replying with one.',
   },
+  qq_sticker_tag: {
+    zh: '修改某张表情包的标注(情感/用处/标签/显示名),改完即持久化。',
+    en: 'Edit the annotation (emotion/usage/tag/label) of one collected sticker and persist it.',
+  },
   qq_proactive: {
     zh: '主动说话调度器:查状态(status)或手动触发一次(trigger)。',
     en: 'Proactive-speaking scheduler: check status or fire one manually.',

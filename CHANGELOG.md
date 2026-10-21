@@ -4,6 +4,12 @@
 
 规则：每版本一个二级标题，标题里的第一个版本号即为本节版本。
 
+## 0.6.8
+
+- 修复：宠物没有任何把标签写回表情包索引的通道——`sticker.ts` 里 `emotion/usage/tag` 只在收货那一刻由自动标注写入，此后无代码路径可改；对外只有只读的 `qq_sticker_stats` 与只同步的 `qq_sticker_to_favorites`，宠物想修正/补充标注（尤其「未知」）没有任何接口，手工改 `sticker-index.json` 又会被内存里的旧 map 在下次落盘时悄悄覆盖。
+- 新增工具 `qq_sticker_tag`：按文件名（来自 `qq_sticker_stats`，也接受 `[表情包:xxx]` 写法）修改某张表情包的 `emotion/usage/tag/label`（只传想改的字段），`StickerStore` 新增 `updateMeta()` 走既有 debounce 落盘，不再有覆盖问题。
+- bot 可见工具 13 -> 14；describe.json / README / TOOL_SUMMARIES 同步更新。
+
 ## 0.6.7
 
 工具合并（减少 bot 可见工具数量、降低模型选工具负担；框架原生支持 `action` 枚举参数）：

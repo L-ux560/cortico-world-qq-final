@@ -174,6 +174,37 @@ export class StickerStore {
     return r;
   }
 
+  /**
+   * 按文件名定位一张表情包并更新其标注字段（emotion/usage/tag/label），随后调度落盘。
+   * 这是除收货标注外唯一的写回通道，供 qq_sticker_tag 工具让 bot 自己修正/补充标注。
+   * file 也接受 [表情包:xxx.jpg] 写法或省略扩展名的形式。找不到返回 null。
+   */
+  updateMeta(
+    file: string,
+    patch: { emotion?: string; usage?: string; tag?: string; label?: string },
+  ): StickerMeta | null {
+    let key = (file || '').trim();
+    key = key.replace(/^\[表情包:/i, '').replace(/\]$/, '').trim();
+    if (!key) return null;
+    const want = key.toLowerCase();
+    const m = [...this.meta.values()].find((x) => {
+      const f = x.file.toLowerCase();
+      return f === want || f.replace(/\.[^.]+$/, '') === want.replace(/\.[^.]+$/, '');
+    });
+    if (!m) return null;
+    const clean = (s?: string) => (typeof s === 'string' ? s.trim().slice(0, 40) : '');
+    const emo = clean(patch.emotion);
+    const uso = clean(patch.usage);
+    const tg = clean(patch.tag);
+    const lb = clean(patch.label);
+    if (emo) m.emotion = emo;
+    if (uso) m.usage = uso;
+    if (tg) m.tag = tg;
+    if (lb) m.label = lb;
+    this.scheduleSave();
+    return m;
+  }
+
   private pump(): void {
     if (this.inflight >= 4) return;
     const job = this.queue.shift();
