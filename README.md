@@ -370,7 +370,7 @@ interface VoiceProvider {
 ## 已知限制 / 与原版的差异
 
 - 语音解码：QQ 语音多为 **SILK** 编码。`native` 供应商由 NapCat 服务端（如 NapCat 的 `translate_record`）解码最稳；`custom`/`local` 供应商走 OpenAI 兼容接口，一般要求 wav/mp3/flac，对 SILK 支持不稳。若识别不了 SILK，可把 `asr.mode` 设为 `local`（本地 FunASR 自带 SILK 解码），需本机有 ffmpeg（见 `asr.ffmpegPath`）。本地/远程服务不可达或超时（`asr.transcribeTimeout` 控制）时不阻塞对话，回退文字。
-- 合并转发展开、视频/文件等大二进制默认只做文本占位（不自动作为附件，避免撑爆上下文）。
+- 合并转发展开、视频/文件等大二进制默认只做文本占位（不自动作为附件，避免撑爆上下文）。展开后的 `qq.forward` 事件头会标注「转发来源：群「<群名>(<号>)」/ 私聊「<昵称>(<QQ>)」/ 多个来源」，帮助模型判断语境；来源恰好就是收到转发的当前会话时不重复标注（从每个转发节点捕获 `group_id`/对方 QQ，由 SnowLuma `get_forward_msg` 返回）。
 - **合并转发消息（不伪造身份）**：`qq_forward_by_id` 工具可按消息编号把本 bot 已接收/发出的多条消息合成**一张**合并转发卡片发出（卡片由本 bot 发出，node 身份只能是 bot 自己；卡片内每条消息用文本标注原始发送者昵称+QQ号并保留原文内容，不伪造任何身份）。需先开启设置 `worlds.qqbot.forwardByMessageId`（默认关闭），且仅能转发本 bot 本地记录内、属于目标会话的消息编号；依赖 OneBot 的 `send_forward_msg` 与 `get_msg`（NapCat/Lagrange/SnowLuma 等主流 OneBot v11 实现大多支持）。受 OneBot 限制，合并卡片无法把 node 身份设成原始发送者，故用「文本标注来源」保留出处。
 - 群成员名片为空时尝试补一次 `get_group_member_info`，但离线名片仍以 NapCat 推送为准。
 - 引用回复走实时 `get_msg`（与 fat-fish 一致），需要 NapCat 暴露该 API；引用库外消息也能正确拉取。

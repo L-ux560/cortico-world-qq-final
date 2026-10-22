@@ -11,6 +11,7 @@ import { transcribeRecord, synthesizeVoice, judgeVoiceWish, checkVoiceDeps, voic
 import { isAbsolute, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildOutgoing, eventClock, eventTs, renderIncoming, renderSegmentsPlain, splitReplyIntoMessages } from './normalize.ts';
+import { forwardSource as inferForwardSource } from './forward-source.ts';
 
 const ENV_PROMPT_FILE = fileURLToPath(new URL('../ENV_PROMPT.md', import.meta.url));
 // 本扩展自身包根目录（asr_sidecar.py / venv / models 真正所在）。从模块位置推算，
@@ -47,6 +48,9 @@ interface ForwardNode {
   time?: number;
   userId?: string;
   messageType?: string;
+  /** 节点内容原始所在的会话：群转发为群号，私聊转发为对方 QQ。用于标注「转发来源群/人」。 */
+  originGroupId?: number;
+  originPeerUin?: number;
 }
 
 interface PendingSend {
@@ -1566,6 +1570,20 @@ export class QQWorld implements World {
         ? nicknameValue
         : undefined;
     const name = isSelf ? '你' : nickname ?? (uid !== undefined ? String(uid) : '?');
+    const messageType = typeof n.message_type === 'string' ? n.message_type : undefined;
+    // 转发来源：群转发取 group_id，私聊转发取对方 QQ（排除自己），用于事件头标注「转发来源群/人」。
+    const gidRaw = n.group_id;
+    const originGroupId =
+      typeof gidRaw === 'number' && gidRaw > 0
+        ? gidRaw
+        : typeof gidRaw === 'string' && /^\d+$/.test(gidRaw)
+          ? Number(gidRaw)
+          : undefined;
+    let originPeerUin: number | undefined;
+    if (messageType !== 'group' && uid !== undefined && !isSelf) {
+      const u = typeof uid === 'number' ? uid : Number(uid);
+      if (Number.isFinite(u) && u > 0) originPeerUin = u;
+    }
     // 正文兼容三种来源：NapCat 用 content，标准节点用 message（段数组或字符串），退化用 raw_message。
     const raw = n.content ?? n.message ?? n.raw_message;
     const body =
@@ -1580,7 +1598,9 @@ export class QQWorld implements World {
       named: isSelf || nickname !== undefined,
       time: n.time != null ? Number(n.time) : undefined,
       userId: uid !== undefined ? String(uid) : undefined,
-      messageType: typeof n.message_type === 'string' ? n.message_type : undefined,
+      messageType,
+      originGroupId,
+      originPeerUin,
     };
   }
 
@@ -1611,17 +1631,21 @@ export class QQWorld implements World {
           });
         }
         const collapsed = this.forwardIdentityCollapsed(rendered);
+        const src = this.identity
+          ? inferForwardSource(rendered, this.identity, conv.kind, conv.id)
+          : null;
         const body = rendered.length ? rendered.map((n) => n.line).join('\n') : '(转发记录是空的)';
-        const header = collapsed
-          ? `[系统] #${ofMessageId} 引用的转发消息展开如下（里面的发言人身份没能取到，可能是多个人在说话）：`
-          : `[系统] #${ofMessageId} 引用的转发消息展开如下：`;
+        const headerBase = collapsed
+          ? `[系统] #${ofMessageId} 引用的转发消息展开如下（里面的发言人身份没能取到，可能是多个人在说话）`
+          : `[系统] #${ofMessageId} 引用的转发消息展开如下`;
+        const header = src ? `${headerBase}（转发来源：${src.label}）：` : `${headerBase}：`;
         void this.host.pushEvent({
           type: 'qq.forward',
           ts: eventTs(this.config.timezone),
           source: SOURCE,
           text: `${header}\n${body}`,
           senderKey: conv.address,
-          meta: { conv: conv.address, forward_id: resId },
+          meta: { conv: conv.address, forward_id: resId, forward_source: src?.source ?? null },
         });
       })
       .catch((err) => {
