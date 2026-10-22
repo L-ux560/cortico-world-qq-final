@@ -4,6 +4,13 @@
 
 规则：每版本一个二级标题，标题里的第一个版本号即为本节版本。
 
+## 0.6.12
+
+- 修本地 ASR 侧车「找不到 asr_sidecar.py」的根因（用户反馈 2026-10-22：Coopanion 启动时刷三条 `[asr-sidecar]` WARN、语音识别不可用）。
+  - 根因：`resolveAsrSidecar` 只按框架给的 `packageDir` 找脚本，而框架有时把 `packageDir` 指向 `bots/<bot>` 而非扩展目录，导致随包发布的 `asr_sidecar.py`（在扩展包根）找不到。
+  - 修法：新增 `EXT_ROOT`（`fileURLToPath(new URL('..', import.meta.url))`，从模块自身位置推算的扩展包根）作为查找**主锚点**，`packageDir` 降级为兜底候选。脚本/venv/python/model 四类候选都先查 `EXT_ROOT` 再查 `packageDir`。仍保持「只查本扩展自身目录、不跨包/跨目录扫描」的安全属性（避免别的扩展放同名文件被误执行）。
+  - 说明：这是源码修复，用户不再需要把脚本手动复制到 `bots/<bot>`；但 Python venv（funasr+torch，约 1.3GB）仍需自行准备——`asr.mode=local` 默认需要它，放 `<扩展>/venv_vox` 或配置 `asr.localVenv` 即可。
+
 ## 0.6.11
 
 - 安全加固（纵深防御）：QQ 空间发说说/评论的附图在真正调 API 的边界（`QZonePoster.post`）补一层协议白名单——仅收 `http(s)://` 与 `base64://` / `data:` 图片数据，拒绝 `file://` 等本地/任意协议，避免模型经 `qq_qzone(action=post)` 传入本地文件路径把本机任意文件上传出去。`world` 层已过滤一次，这里再挡一道。bot 自己收到的本地图片（`collectImages`）是可信内部来源，不经此过滤。

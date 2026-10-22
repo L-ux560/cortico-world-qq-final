@@ -13,6 +13,9 @@ import { fileURLToPath } from 'node:url';
 import { buildOutgoing, eventClock, eventTs, renderIncoming, renderSegmentsPlain, splitReplyIntoMessages } from './normalize.ts';
 
 const ENV_PROMPT_FILE = fileURLToPath(new URL('../ENV_PROMPT.md', import.meta.url));
+// 本扩展自身包根目录（asr_sidecar.py / venv / models 真正所在）。从模块位置推算，
+// 不依赖框架可能指错的 packageDir（框架有时把它指向 bots/<bot> 而非扩展目录）。
+const EXT_ROOT = fileURLToPath(new URL('..', import.meta.url));
 
 /** 去掉语音转写前缀（"[语音转写] "），用于触发词匹配 */
 function stripTranscribePrefix(t: string): string {
@@ -1805,14 +1808,19 @@ export class QQWorld implements World {
     }
   }
 
-  // 只使用本扩展自带的 asr_sidecar.py（packageDir 下），不再跨包/跨目录扫描：
+  // 只使用本扩展自带的 asr_sidecar.py，不再跨包/跨目录扫描：
   // 否则别的扩展只要放一个同名文件就会被本扩展执行，存在代码执行风险。
+  // 查找以「本扩展自身目录 EXT_ROOT（从模块位置推算）」为主锚点，packageDir 仅作兜底——
+  // 框架有时把 packageDir 指向 bots/<bot> 而非扩展目录，单靠它会找不到随包发布的脚本。
 
   /** 探测本地 ASR 侧车依赖：python 解释器 + asr_sidecar.py + 模型目录。不写死任何机器路径：全部由 asr.local* 配置与环境变量决定。 */
   private resolveAsrSidecar(): { python: string; script: string; modelPath: string; engine: string } | null {
     const asr = this.config.asr;
-    // 框架有时把 packageDir 指向 bots/<bot> 而非扩展目录，故回退多个"包相对"候选位置找脚本（不含任何绝对机器路径）
+    // 优先在本扩展真实目录（EXT_ROOT，从模块位置推算，不受 packageDir 指错影响）找脚本，
+    // packageDir 仅作兜底候选（不含任何绝对机器路径）。
     const scriptCands = [
+      join(EXT_ROOT, 'asr_sidecar.py'),
+      join(EXT_ROOT, 'src', 'asr_sidecar.py'),
       join(this.packageDir, 'asr_sidecar.py'),
       join(this.packageDir, 'src', 'asr_sidecar.py'),
     ];
@@ -1831,10 +1839,12 @@ export class QQWorld implements World {
       python = join(venv, 'Scripts', 'python.exe');
     } else {
       const cands = [
+        join(EXT_ROOT, 'venv_vox', 'Scripts', 'python.exe'),
+        join(EXT_ROOT, 'venv', 'Scripts', 'python.exe'),
         join(this.packageDir, 'venv_vox', 'Scripts', 'python.exe'),
         join(this.packageDir, 'venv', 'Scripts', 'python.exe'),
       ];
-      python = cands.find((c) => existsSync(c)) || join(this.packageDir, 'venv_vox', 'Scripts', 'python.exe');
+      python = cands.find((c) => existsSync(c)) || join(EXT_ROOT, 'venv_vox', 'Scripts', 'python.exe');
     }
     if (!existsSync(python)) {
       this.log.warn('[asr-sidecar] 未找到 python 解释器：' + python + '（请在 asr.localVenv 配置 venv 目录，或把 venv 放到 <扩展>/venv_vox）');
@@ -1850,6 +1860,7 @@ export class QQWorld implements World {
     if (!modelPath || !existsSync(modelPath)) {
       const mdCands = [
         process.env.QQBOT_ASR_MODEL_DIR || '',
+        join(EXT_ROOT, 'models', defModelName),
         join(this.packageDir, 'models', defModelName),
       ];
       modelPath = mdCands.find((c) => c && existsSync(c)) || '';
@@ -2835,7 +2846,7 @@ export class QQWorld implements World {
   private async runAsrDownload(target: string): Promise<void> {
     const asr = this.config.asr || {};
     let python = process.env.QQBOT_ASR_PYTHON || '';
-    const venvCands = [asr.localVenv, process.env.QQBOT_ASR_VENV, join(this.packageDir, 'venv_vox')].filter(Boolean) as string[];
+    const venvCands = [asr.localVenv, process.env.QQBOT_ASR_VENV, join(EXT_ROOT, 'venv_vox'), join(this.packageDir, 'venv_vox')].filter(Boolean) as string[];
     for (const v of venvCands) {
       const cand = join(v, 'Scripts', 'python.exe');
       if (existsSync(cand)) { python = cand; break; }
