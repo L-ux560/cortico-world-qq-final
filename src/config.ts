@@ -474,7 +474,7 @@ export const QQ_CONFIG_GROUP: ConfigGroup = {
       'worlds.qqbot.qzone.permission': { type: 'integer', title: '动态可见权限', minimum: 0, maximum: 10, 'x-hot': true, description: 'ugc_right：1=公开（默认），其余值随 NapCat 版本。' },
       'worlds.qqbot.qzone.imageMode': { type: 'string', title: '自动附图', enum: ['none', 'recent'], 'x-hot': true, description: 'none=不附图；recent=自动附上最近一条 QQ 图片。' },
       'worlds.qqbot.qzone.autoReplyComments.enabled': { type: 'boolean', title: '自动回复空间评论', 'x-hot': false, description: '收到空间评论时自动生成并回复。需重启生效。' },
-      'worlds.qqbot.qzone.commentAction': { type: 'string', title: '评论回复 action', 'x-hot': true, description: '回复评论用的 OneBot action（不同 NapCat 版本可能不同，默认 send_qzone_comment）。' },
+      'worlds.qqbot.qzone.commentAction': { type: 'string', title: '评论回复 action', 'x-hot': true, description: '回复评论用的 OneBot action（NapCat/SnowLuma 为 `comment_qzone`；不同版本可能不同，留 `auto` 即用内置默认值）。' },
       'worlds.qqbot.proactive.withNickname': { type: 'boolean', title: '主动说话带昵称/称呼', 'x-hot': true, description: '开启时主动消息会称呼对方昵称；关闭后不称呼对方具体名字，直接用「你」即可。改完即时生效。' },
       'worlds.qqbot.groupSpeak.enabled': { type: 'boolean', title: '群聊发言限速', 'x-hot': true, description: '开启后限制每个群在单位窗口内被 bot 发出的消息总量，防止刷屏/死循环灌水。' },
       'worlds.qqbot.groupSpeak.maxPerWindow': { type: 'integer', title: '窗口内最大条数', minimum: 1, maximum: 200, 'x-hot': true, description: '滑动窗口内允许发出的群消息上限（含主动与回复）。' },

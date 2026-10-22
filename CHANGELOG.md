@@ -4,6 +4,17 @@
 
 规则：每版本一个二级标题，标题里的第一个版本号即为本节版本。
 
+## 0.6.16
+
+- 修复 QQ空间（qzone）四个 OneBot action 全部调用失败（retcode=1404 UNKNOWN_ACTION）。
+  - 根因：`qzone.ts` 用了点号命名空间名（`qzone.publish` / `qzone.replyComment` / `qzone.feeds` / `qzone.delete`），但 NapCat / SnowLuma 内核只注册扁平名，故全部 1404。
+  - 改用协议端真实扁平名：`send_qzone_msg`（发动态）、`comment_qzone`（评论）、`get_qzone_feeds`（列动态）、`delete_qzone_msg`（删动态）。
+  - 顺带修掉几个相关错误：
+    - 发动态参数：`send_qzone_msg` 用 `ugc_right`（仅 1/4/16/64/128 合法），旧代码的 `content_type` 与 `visible.type`（2/8 非法）会被拒；`permission` 配置项类型由字符串联合改为数字 ugc_right（与 config 默认值 `1` 及工具参数的"数字"语义一致，避免模型传入的可见权限永远落到非法值）。
+    - 评论：`comment_qzone` 只能对整个动态发表新评论，不支持按 comment_id 回楼中楼（已据此修正 qq_qzone 工具描述与校验，并去掉误导的回执文案）；`qzone.commentAction` 配置此前从没接到 `callApi`，现已真正生效（`auto`→内置 `comment_qzone`，也可直接填协议端 action 名）。
+    - 列动态：`get_qzone_feeds` 参数为 `{ page_num, count }`（旧 `{ num }` 无效）；返回的是 HTML 片段，现剥标签后给模型可读文本。
+  - 同步：README「配置项 / 已知限制」里写错的旧 action 名 `send_qzone_comment` → `comment_qzone`；`config.ts` 的 `qzone.commentAction` schema 说明同步。
+
 ## 0.6.15
 
 - 安全加固：`allowPrivateRedirect` 的有效默认值修正为关闭。

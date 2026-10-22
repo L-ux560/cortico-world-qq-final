@@ -2332,7 +2332,7 @@ export class QQWorld implements World {
       description:
         'QQ 空间动态系列（用一个 action 选子功能）：' +
         'post=发一条动态（说说，content 必填，可附图 images / @人 ats / 权限 permission）；' +
-        'delete=删除一条动态（tid）；reply=回复某条动态下的评论（tid+comment_id+content）；' +
+        'delete=删除一条动态（tid）；reply=对一条动态发表评论（NapCat/SnowLuma 仅支持对整个动态评论，tid+content，comment_id 可不填）；' +
         'feeds=查看自己的动态列表（num）；status=查看发布器状态（开关/配额/最近动态 tid）。' +
         'content 必须由你（主模型）显式给出：按"最近聊天 + 真实看法"以第一人称写，自然有梗，1-3 句；' +
         '不要空泛、不要"我帮你记下了"这类托管语气。',
@@ -2346,7 +2346,7 @@ export class QQWorld implements World {
           ats: { type: 'array', items: { type: 'string' }, description: '【post】@的人：昵称或 QQ 号数组。' },
           permission: { type: 'number', description: '【post】可见权限 ugc_right，默认 1=公开。' },
           tid: { type: 'string', description: '【delete/reply】动态 tid（来自 post 返回或 status 最近列表）。' },
-          comment_id: { type: 'string', description: '【reply】评论 id。' },
+          comment_id: { type: 'string', description: '【reply】评论 id（可选；NapCat/SnowLuma 仅支持对整个动态发表评论，comment_id 不会被使用）。' },
           num: { type: 'number', description: '【feeds】返回条数，默认 5。' },
         },
         required: ['action'],
@@ -2382,10 +2382,10 @@ export class QQWorld implements World {
             const tid = String(args.tid ?? '');
             const cid = String(args.comment_id ?? '');
             const content = typeof args.content === 'string' ? args.content : '';
-            if (!tid || !cid || !content) return 'tid / comment_id / content 都不能为空。';
+            if (!tid || !content) return 'tid / content 都不能为空（comment_id 可不填）。';
             // 注意 replyComment 签名是 (commentId, text, tid)，与早期 (tid, cid, content) 不同。
             const r = await this.qzone.replyComment(cid, content, tid);
-            return r.ok ? `已回复 QQ空间评论（tid=${tid}, comment_id=${cid}）。` : `回复失败：${r.error ?? '未知错误'}（评论回复 action 名称可在控制台 qzone.commentAction 调整）`;
+            return r.ok ? `已对动态 tid=${tid} 发表评论。` : `回复失败：${r.error ?? '未知错误'}（评论回复 action 可在控制台 qzone.commentAction 调整）`;
           }
           case 'feeds': {
             const num = typeof args.num === 'number' && Number.isFinite(args.num) ? Math.max(1, Math.min(50, args.num)) : 5;

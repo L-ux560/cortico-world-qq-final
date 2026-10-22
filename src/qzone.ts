@@ -27,12 +27,12 @@ export interface QZoneConfig {
   chancePerTick: number;
   /** 每天自动发动态上限（0=不限）。 */
   dailyQuota: number;
-  /** 权限：谁可触发/发；与原来一致。 */
-  permission: 'all' | 'friend' | 'admin' | 'owner';
+  /** 可见权限 ugc_right：1 公开 / 4 好友 / 16 指定人(target_uins) / 64 仅自己 / 128 黑名单。 */
+  permission: number;
   /** 动态配图模式。 */
   imageMode: 'none' | 'recent' | 'album';
-  /** 评论动作：自动回复 / 仅记录。 */
-  commentAction: 'auto' | 'none';
+  /** 评论回复用的 OneBot action：'auto' 表示用内置正确值（NapCat/SnowLuma 为 'comment_qzone'），也可直接填协议端 action 名。 */
+  commentAction: string;
   autoReplyComments: QZoneAutoReplyConfig;
 }
 
@@ -113,8 +113,8 @@ export class QZonePoster {
     }
   }
 
-  /** 发动态：content 须由调用方（主模型经 qq_qzone（action=post））显式提供。删除了"模型自动生成"路径。 */
-  async post(opts: { content: string; images?: string[]; topic?: string; permission?: string }): Promise<QZonePostResult> {
+  /** 发动态：content 须由调用方（主模型经 qq_qzone（action=post））显式提供。NapCat/SnowLuma 用扁平 action 名 send_qzone_msg + ugc_right。 */
+  async post(opts: { content: string; images?: string[]; topic?: string; permission?: number | string }): Promise<QZonePostResult> {
     if (!this.cfg.enabled) return { ok: false, error: 'QQ 空间未启用（先在控制台开 worlds.qqbot.qzone.enabled）。' };
     const content = (opts.content || '').trim();
     if (!content) return { ok: false, error: '动态内容不能为空：请用 content 给出要发的内容（本扩展不再自动生成动态文本）。' };
@@ -122,41 +122,86 @@ export class QZonePoster {
       return { ok: false, error: `今天自动发动态已达上限（${this.cfg.dailyQuota}），请明天再发，或手动发。` };
     }
     const params: Record<string, unknown> = {
-      content_type: 1,
       content,
       // 模型提供的附图经白名单过滤；bot 自己收到的本地图片（collectImages）是可信内部来源，不经此过滤。
       images: this.sanitizeImages(opts.images) ?? (this.cfg.imageMode !== 'none' ? this.collectImages() : []),
+      // NapCat/SnowLuma 的 send_qzone_msg 用 ugc_right（仅 1/4/16/64/128 合法）；旧的 'qzone.publish' + visible.type(2/8 非法) 会被拒。
+      ugc_right: this.resolveUgcRight(opts.permission, this.cfg.permission),
     };
     if (opts.topic) params.topic = opts.topic;
-    const perm = opts.permission ?? String(this.cfg.permission ?? 'all');
-    params.visible = { type: perm === 'all' ? 1 : perm === 'friend' ? 2 : perm === 'admin' ? 4 : 8 };
-    const res = await this.callApi('qzone.publish', params);
+    const res = await this.callApi('send_qzone_msg', params);
     if (res.error) return { ok: false, error: `发布失败：${res.error}` };
+    // send_qzone_msg 成功时 data 为 null（不返回 tid），tid 记为未知。
     const tid = String((res.data as { tid?: string })?.tid ?? '');
     this.recordPost(tid, content);
     this.log.info('posted', { tid });
     return { ok: true, tid, text: content };
   }
 
-  /** 回复某条评论（由主模型经 qq_qzone（action=reply） 调用）。 */
+  /** 解析可见权限：优先用调用方传入的 ugc_right 数字；否则按配置字符串语义映射。 */
+  private resolveUgcRight(permArg: unknown, cfgPerm: unknown): number {
+    const valid = new Set([1, 4, 16, 64, 128]);
+    const map = (v: unknown): number => {
+      if (typeof v === 'number' && valid.has(v)) return v;
+      if (typeof v === 'string') {
+        switch (v) {
+          case 'owner': return 64; // 仅自己
+          case 'friend':
+          case 'admin': return 4;  // 好友
+          default: return 1;       // all / 其它 → 公开
+        }
+      }
+      return 1;
+    };
+    return permArg !== undefined && permArg !== null ? map(permArg) : map(cfgPerm);
+  }
+
+  /** 回复评论（由主模型经 qq_qzone（action=reply） 调用）。NapCat/SnowLuma 用 comment_qzone，只能对整个动态发表新评论，不支持按 comment_id 回楼中楼。 */
   async replyComment(commentId: string, text: string, tid?: string): Promise<{ ok: true } | { ok: false; error: string }> {
-    if (!commentId) return { ok: false, error: '缺少 commentId。' };
-    const res = await this.callApi('qzone.replyComment', { commentId, text, tid });
+    if (!text?.trim()) return { ok: false, error: '评论内容为空。' };
+    if (!tid) return { ok: false, error: '缺少 tid（动态 id）。' };
+    // commentAction 为 'auto' 时用内置正确 action（NapCat/SnowLuma 为 'comment_qzone'）；否则用配置里填的协议端 action 名。
+    const action = this.cfg.commentAction && this.cfg.commentAction !== 'auto' ? this.cfg.commentAction : 'comment_qzone';
+    const res = await this.callApi(action, { tid, content: text });
     if (res.error) return { ok: false, error: `回复失败：${res.error}` };
-    this.log.info('replied comment', { commentId });
+    this.log.info('replied comment', { commentId, tid });
     return { ok: true };
   }
 
   async getFeeds(num: number): Promise<{ ok: boolean; feeds?: unknown[]; error?: string }> {
     if (!this.cfg.enabled) return { ok: false, error: 'QQ空间未启用' };
-    const res = await this.callApi('qzone.feeds', { num });
+    // NapCat/SnowLuma 用 get_qzone_feeds，参数为 { page_num, count }。
+    const res = await this.callApi('get_qzone_feeds', { page_num: 1, count: num });
     if (res.error) return { ok: false, error: res.error };
-    const data = (res.data ?? {}) as { feeds?: unknown[] };
-    return { ok: true, feeds: data.feeds ?? [] };
+    const data = (res.data ?? {}) as { feeds?: Array<Record<string, unknown>> };
+    // feeds 条目是 HTML 片段，剥标签后给模型可读文本。
+    const feeds = (data.feeds ?? []).map((f) => ({
+      uin: f.uin,
+      nickname: f.nickname,
+      time: f.time,
+      text: typeof f.html === 'string' ? QZonePoster.stripHtml(String(f.html)) : (f.content ?? ''),
+    }));
+    return { ok: true, feeds };
+  }
+
+  /** 把 QQ空间动态 feed 的 HTML 片段转成可读纯文本（供模型消费）。 */
+  private static stripHtml(html: string): string {
+    return html
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/(p|div|li)>/gi, '\n')
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{2,}/g, '\n')
+      .trim();
   }
 
   async delete(tid: string): Promise<{ ok: boolean; error?: string }> {
-    const res = await this.callApi('qzone.delete', { tid });
+    // NapCat/SnowLuma 用 delete_qzone_msg。
+    const res = await this.callApi('delete_qzone_msg', { tid });
     if (res.error) return { ok: false, error: res.error };
     return { ok: true };
   }

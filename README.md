@@ -65,7 +65,7 @@ Cortico 的 **QQ（OneBot v11 / NapCat）** World 扩展。以 `fat-fish` 仓库
 | `qzone.imageMode` | `none` | `none`=不带图 / `recent`=附上最近一张收到/发出的图 |
 | `qzone.autoReplyComments.enabled` | `false` | 收到空间评论时自动回复 |
 | `qzone.autoReplyComments.chance` | `0.5` | 单条评论自动回复概率 |
-| `qzone.commentAction` | `send_qzone_comment` | 回评所用的 OneBot action 名（NapCat 可能为其它名，可改）。**v0.6.0 起评论回复改为事件驱动（主模型经 qq_qzone（action=reply） 回复），不再用第二模型** |
+| `qzone.commentAction` | `comment_qzone` | 回评所用的 OneBot action 名（NapCat/SnowLuma 为 `comment_qzone`；留 `auto` 即用内置默认值，可改）。**v0.6.0 起评论回复改为事件驱动（主模型经 qq_qzone（action=reply） 回复），不再用第二模型** |
 | `proactive.endpoint` / `proactive.apiKeySecret` / `proactive.model` | 已移除 | **v0.6.0 起主动说话改为事件驱动**：不再单独调用 LLM，改由主模型在收到主动说话事件后生成并发送，这些第二模型配置项已删除 |
 | `proactive.dailyQuota` | `20` | 每日主动消息上限（0=不限）。`topicSimilarity`/`tokenLimit` 等第二模型相关配置项已随 0.6.0 移除 |
 | `groupSpeak.enabled` | `true` | 群聊发言频率限制开关（含主动与回复） |
@@ -379,6 +379,6 @@ interface VoiceProvider {
 - 系统表情标记 `[表情22：白眼]` / `[表情22:白眼]`（数字为 QQ face id，支持全角/半角冒号与可选空格）会被解析成真正的 `face` 段发送。早期版本只认半角冒号，bot 照着入站的全角冒号写法输出时会变成"不存在的表情"文本，已于 0.1.8 修复。
 - 辅助视觉默认关闭。开启需自备一个 OpenAI 兼容 VLM 服务：在配置里填好 `vision.endpoint` / `vision.apiKeySecret` / `vision.model` 三项（密钥值放部署密钥库）。注意这与默认开启的「图片作为模型附件」是**两条看图的路**，同时开会重复花钱——主模型本身能看图时，关掉辅助视觉即可。
 - QQ 空间功能依赖 NapCat 的 `send_qzone_msg` / `delete_qzone_msg`；部分 NapCat 版本未暴露空间 API，开启后调用会失败（可在控制台看错误）。
-- 回评 action 名（默认 `send_qzone_comment`）按 NapCat 版本不同可能变化，失败请在控制台改 `qzone.commentAction`。
+- 回评 action 名（NapCat/SnowLuma 为 `comment_qzone`，留 `auto` 即用内置默认）按版本不同可能变化，失败请在控制台改 `qzone.commentAction`。
 - `qq_qzone（action=feeds）` 拉取列表为 best-effort，取决于 NapCat 是否实现 `get_qzone_msg_list`；取不到时返回空。
 - 动态文案生成需在配置里填好 `qzone.endpoint` / `qzone.apiKeySecret` / `qzone.model` 三项（开启自动动态/自动评论后必填；`qq_qzone（action=post）` 显式传 `content` 时不需要模型）；未配置时不会自动发动态，工具调用会返回明确提示。
