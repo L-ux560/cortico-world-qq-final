@@ -1548,21 +1548,39 @@ export class QQWorld implements World {
   }
 
   /** 合并转发节点渲染结果（对齐内置 qq 的 ForwardNode）。 */
-  private renderForwardNode(value: OneBotMessage): ForwardNode {
-    const sender = value.sender ?? {};
-    const uid = sender.user_id;
-    const isSelf = uid !== undefined && this.identity !== null && uid === this.identity.selfId;
-    const nickname = sender.nickname || sender.card;
-    const named = isSelf || (nickname !== undefined && nickname !== '' && nickname !== PLACEHOLDER_NICKNAME);
+  private renderForwardNode(value: unknown): ForwardNode {
+    const outer = value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+    const data = outer.data;
+    // 兼容两种节点形状：NapCat 记录为 { type:'node', data:{ name, uin, content } }（data 才是真正消息），
+    // 标准 OneBot node 段则直接带 sender/message。命中 node 包裹时下沉到 data。
+    const n = outer.type === 'node' && data !== null && typeof data === 'object' ? (data as Record<string, unknown>) : outer;
+    const sender =
+      n.sender !== null && typeof n.sender === 'object' ? (n.sender as Record<string, unknown>) : {};
+    const uidValue = sender.user_id ?? n.user_id;
+    const uid =
+      typeof uidValue === 'string' || typeof uidValue === 'number' ? uidValue : undefined;
+    const isSelf = uid !== undefined && this.identity !== null && String(uid) === String(this.identity.selfId);
+    const nicknameValue = sender.nickname ?? sender.card ?? n.nickname;
+    const nickname =
+      typeof nicknameValue === 'string' && nicknameValue && nicknameValue !== PLACEHOLDER_NICKNAME
+        ? nicknameValue
+        : undefined;
     const name = isSelf ? '你' : nickname ?? (uid !== undefined ? String(uid) : '?');
-    const body = typeof value.message === 'string' ? value.message : renderSegmentsPlain(value.message ?? []);
+    // 正文兼容三种来源：NapCat 用 content，标准节点用 message（段数组或字符串），退化用 raw_message。
+    const raw = n.content ?? n.message ?? n.raw_message;
+    const body =
+      typeof raw === 'string'
+        ? raw
+        : Array.isArray(raw)
+          ? renderSegmentsPlain(raw as OneBotSegment[])
+          : '';
     return {
       line: `${name}${uid !== undefined ? `(${uid})` : ''}: ${body}`,
       body,
-      named,
-      time: value.time != null ? Number(value.time) : undefined,
+      named: isSelf || nickname !== undefined,
+      time: n.time != null ? Number(n.time) : undefined,
       userId: uid !== undefined ? String(uid) : undefined,
-      messageType: value.message_type,
+      messageType: typeof n.message_type === 'string' ? n.message_type : undefined,
     };
   }
 

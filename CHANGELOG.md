@@ -4,6 +4,14 @@
 
 规则：每版本一个二级标题，标题里的第一个版本号即为本节版本。
 
+## 0.6.13
+
+- 修合并转发（聊天记录卡片）读不到的根因：别人发来的合并转发 bot 一直展开失败、看不到内容。
+  - 根因：`driver.getForwardMessages` 只接受裸数组（`if (!Array.isArray(r)) return []`），但 OneBot `get_forward_msg` 的真实返回是 `{ messages: [...] }`（对象），导致永远返回空、静默失败。
+  - 修法：`getForwardMessages` 兼容多种返回形状——`{ messages: [...] }` / `{ message: [...] }` / 裸数组（`callApi` 已剥掉 OneBot 应答最外层的 data）。
+  - 同步对齐 `renderForwardNode` 与内置 `qq` world：兼容 NapCat 记录形态 `{ type:'node', data:{ name, uin, content } }`（下沉到 data 取正文/身份），正文来源兼容 `content` / `message` / `raw_message`，昵称兼容 `sender.card`。
+  - 已确认协议端 SnowLuma 实现 `get_forward_msg`（返回 `{ messages: [...] }`，每节点带 `sender` + `message` 段数组），本修复后 bot 可正常展开并读入会话。
+
 ## 0.6.12
 
 - 修本地 ASR 侧车「找不到 asr_sidecar.py」的根因（用户反馈 2026-10-22：Coopanion 启动时刷三条 `[asr-sidecar]` WARN、语音识别不可用）。
