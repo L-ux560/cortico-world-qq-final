@@ -19,9 +19,9 @@ test('normalizeConfig 补全缺省值且保持对象引用身份（x-hot 生效�
 });
 
 test('辅助 AI 任务默认跟随主模型（endpoint/密钥/模型名一律留空）', () => {
-  // 这四项任务原本各自写死 OpenRouter，而用户装桌宠时配好的是自己的模型（如 DeepSeek），
-  // 于是装完一开主动说话就刷「缺少 API Key」。留空=自动跟随 activeProvider 才做到零配置。
-  for (const seg of ['vision', 'proactive', 'qzone', 'emotion'] as const) {
+  // 唯一的辅助模型配置段是 vision（endpoint/apiKeySecret/model 留空=跟随主模型）。
+  // proactive/qzone 是调度器（直接用主模型，无独立模型配置）；emotion 不是配置段（只是表情包标注）。
+  for (const seg of ['vision'] as const) {
     const s = QQ_DEFAULTS[seg] as { endpoint: string; apiKeySecret: string; model: string };
     assert.equal(s.endpoint, '', `${seg}.endpoint 应留空以跟随主模型`);
     assert.equal(s.apiKeySecret, '', `${seg}.apiKeySecret 应留空以跟随主模型`);
@@ -32,7 +32,7 @@ test('辅助 AI 任务默认跟随主模型（endpoint/密钥/模型名一律留
 test('normalizeConfig 不会把留空的辅助模型字段回填成默认值', () => {
   // 保证 normalizeConfig 不会「好心」填回 OpenRouter，破坏自动跟随。
   const out = normalizeConfig({} as never);
-  for (const seg of ['vision', 'proactive', 'qzone', 'emotion'] as const) {
+  for (const seg of ['vision'] as const) {
     const s = out[seg] as { endpoint: string; apiKeySecret: string; model: string };
     assert.equal(s.endpoint, '', `${seg}.endpoint 不应被回填`);
     assert.equal(s.apiKeySecret, '', `${seg}.apiKeySecret 不应被回填`);

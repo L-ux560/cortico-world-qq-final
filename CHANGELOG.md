@@ -4,6 +4,13 @@
 
 规则：每版本一个二级标题，标题里的第一个版本号即为本节版本。
 
+## 0.6.11
+
+- 安全加固（纵深防御）：QQ 空间发说说/评论的附图在真正调 API 的边界（`QZonePoster.post`）补一层协议白名单——仅收 `http(s)://` 与 `base64://` / `data:` 图片数据，拒绝 `file://` 等本地/任意协议，避免模型经 `qq_qzone(action=post)` 传入本地文件路径把本机任意文件上传出去。`world` 层已过滤一次，这里再挡一道。bot 自己收到的本地图片（`collectImages`）是可信内部来源，不经此过滤。
+- 修测试：修掉 0.6.9 起就挂、与本轮无关的两处预存在失败：
+  - `tests/normalize.test.ts`：原断言基于过时假设，把 `proactive`/`qzone`/`emotion` 当成「跟随主模型的辅助模型配置段」并断言其 `endpoint/apiKeySecret/model` 留空。实际只有 `vision` 是辅助模型配置段；`proactive`/`qzone` 是走主模型的调度器、没有这些字段，`emotion` 不是配置段（只是表情包标注）。断言列表收敛为真实结构 `['vision']`。
+  - `tests/security.test.ts`：原断言 grep 的是 `src/qzone.ts` 里的附图白名单，但那段校验实际在 `world.ts`。已在 `qzone.ts` 边界补齐白名单，断言随之成立。
+
 ## 0.6.10
 
 - 认证评审（#104）收尾：

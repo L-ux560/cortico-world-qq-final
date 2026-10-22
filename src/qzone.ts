@@ -124,7 +124,8 @@ export class QZonePoster {
     const params: Record<string, unknown> = {
       content_type: 1,
       content,
-      images: opts.images ?? (this.cfg.imageMode !== 'none' ? this.collectImages() : []),
+      // 模型提供的附图经白名单过滤；bot 自己收到的本地图片（collectImages）是可信内部来源，不经此过滤。
+      images: this.sanitizeImages(opts.images) ?? (this.cfg.imageMode !== 'none' ? this.collectImages() : []),
     };
     if (opts.topic) params.topic = opts.topic;
     const perm = opts.permission ?? String(this.cfg.permission ?? 'all');
@@ -164,6 +165,21 @@ export class QZonePoster {
     if (this.cfg.imageMode === 'none') return [];
     const url = this.getRecentImageUrl();
     return url ? [url] : [];
+  }
+
+  /**
+   * 校验模型经 qq_qzone(action=post) 提供的附图链接：仅收 http(s):// 与 data: 图片（base64://）；
+   * 拒绝 file:// 等本地/任意协议，避免模型借附图把本机任意文件上传出去（纵深防御：
+   * world 层已过滤一次，这里作为真正调 API 的边界再挡一道）。
+   */
+  private sanitizeImages(urls: string[] | undefined): string[] | undefined {
+    if (!urls || !urls.length) return undefined;
+    // 仅收 http(s):// 与 base64:// / data: 图片数据；拒绝 file:// 等本地/任意协议，避免模型借附图把本机任意文件上传出去。
+    return urls.filter(
+      (u) =>
+        typeof u === 'string' &&
+        (/^https?:\/\//.test(u) || /^base64:\/\//.test(u) || /^data:image\//i.test(u)),
+    );
   }
 
   /** 评论事件：沉淀为外部事件 + 若开启自动回复则请主模型回复。 */
