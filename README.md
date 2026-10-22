@@ -56,16 +56,15 @@ Cortico 的 **QQ（OneBot v11 / NapCat）** World 扩展。以 `fat-fish` 仓库
 | `deliverImageAttachments` | `true` | 图片作为模型附件（需模型支持图像）。这是默认的看图路径 |
 | `vision.enabled` | `false` | 辅助视觉：用另一个 VLM 描述图片。主模型本身能看图时不必开（两条路会重复花钱） |
 | `vision.endpoint` / `vision.apiKeySecret` / `vision.model` | `""` | 开启辅助视觉后**三项必填**。密钥只写名字（如 `DEEPSEEK_API_KEY`），值放在部署密钥库（.env）里，由框架 `secret()` 读取 |
-| `qzone.enabled` | `false` | 启用 QQ 空间动态（说说）功能 |
-| `qzone.systemPrompt` | 中性占位（见下） | 发表/回评时的第一人称人设（默认中性占位，实际人设由部署级 ORIENTATION 决定） |
-| `qzone.endpoint` / `qzone.apiKeySecret` / `qzone.model` | `""` | 生成动态/评论的 OpenAI 兼容端点、密钥名（值在部署密钥库）、模型名。**开启自动动态或自动评论后三项必填**；`qq_qzone（action=post）` 显式传 `content` 时不需要 |
+| `qzone.enabled` | `false` | 启用 QQ 空间动态（说说）功能（需重启生效） |
 | `qzone.tickSec` / `qzone.chancePerTick` | `900` / `0.15` | 后台自动冒泡间隔(秒)与每次触发概率 |
-| `qzone.dailyQuota` | `5` | 每日自动发表上限 |
-| `qzone.permission` | `1` | 动态可见范围（0=公开/1=好友/...，取决于 NapCat） |
-| `qzone.imageMode` | `none` | `none`=不带图 / `recent`=附上最近一张收到/发出的图 |
-| `qzone.autoReplyComments.enabled` | `false` | 收到空间评论时自动回复 |
-| `qzone.autoReplyComments.chance` | `0.5` | 单条评论自动回复概率 |
-| `qzone.commentAction` | `comment_qzone` | 回评所用的 OneBot action 名（NapCat/SnowLuma 为 `comment_qzone`；留 `auto` 即用内置默认值，可改）。**v0.6.0 起评论回复改为事件驱动（主模型经 qq_qzone（action=reply） 回复），不再用第二模型** |
+| `qzone.dailyQuota` | `5` | 每日自动发表上限（0=不限） |
+| `qzone.permission` | `1` | 动态可见权限 `ugc_right`：1=公开（默认）/4=好友/16=指定人/64=仅自己/128=黑名单（值随 NapCat/SnowLuma 版本） |
+| `qzone.imageMode` | `none` | `none`=不附图 / `recent`=自动附上最近一条收到的 QQ 图片 |
+| `qzone.autoReplyComments.enabled` | `false` | 收到空间评论时自动回复（需重启生效） |
+| `qzone.autoReplyComments.dailyQuota` | `20` | 每日自动回评上限（0=不限） |
+| `qzone.autoReplyComments.cooldownSec` | `30` | 两条自动回评之间的最小间隔(秒) |
+| `qzone.commentAction` | `auto` | 回评所用的 OneBot action 名（NapCat/SnowLuma 为 `comment_qzone`；留 `auto` 即用内置默认值，可改）。**v0.6.0 起评论回复改为事件驱动（主模型经 qq_qzone（action=reply） 回复），不再用第二模型** |
 | `proactive.endpoint` / `proactive.apiKeySecret` / `proactive.model` | 已移除 | **v0.6.0 起主动说话改为事件驱动**：不再单独调用 LLM，改由主模型在收到主动说话事件后生成并发送，这些第二模型配置项已删除 |
 | `proactive.dailyQuota` | `20` | 每日主动消息上限（0=不限）。`topicSimilarity`/`tokenLimit` 等第二模型相关配置项已随 0.6.0 移除 |
 | `groupSpeak.enabled` | `true` | 群聊发言频率限制开关（含主动与回复） |
@@ -257,10 +256,10 @@ interface VoiceProvider {
 - `qq_reminder（action=add）`：添加一条到点提醒（`content` 内容、`when` 如 `20:30` 或 ` tomorrow 8:00` 或 ISO 时间、可填 `who` 给指定人）。到点自动发到对应会话，带优雅超时控制。
 - `qq_reminder（action=list）`：列出当前待触发的提醒。
 - `qq_reminder（action=cancel）`：取消一条提醒（`id` 或 `all=true` 取消全部）。
-- `qq_qzone（action=post）`：发表 QQ 空间动态（说说）。支持 `content`（正文）、`topic`（话题）、`images`（图片数组）、`ats`（@ 的 QQ 号数组）、`permission`（可见范围）。正文由 LLM 依据对话与记忆以第一人称自动生成；`content` 留空时由人设驱动。
+- `qq_qzone（action=post）`：发表 QQ 空间动态（说说）。参数 `content`（正文，必填，由模型自行生成后传入）、`topic`（话题）、`images`（图片数组，仅限 http(s)/base64）、`permission`（可见权限 `ugc_right`，默认 1=公开）。后台自动冒泡由 `qzone.tickSec`/`chancePerTick` 触发主模型生成并发布，工具本身不自动生成文案。
 - `qq_qzone（action=delete）`：删除指定 `tid` 的动态。
-- `qq_qzone（action=reply）`：回复某条动态的评论（`tid` + `comment_id` + `content`）。
-- `qq_qzone（action=feeds）`：拉取自己的空间动态列表（`num`）。
+- `qq_qzone（action=reply）`：对某条动态发表评论（`tid` + `content`，`comment_id` 可留空；NapCat/SnowLuma 仅支持对整个动态评论，不支持按评论楼中楼回复）。
+- `qq_qzone（action=feeds）`：拉取自己的空间动态列表（`num`，默认 5）。
 - `qq_qzone（action=status）`：返回空间功能开关、今日已发数/配额、待回评等状态。
 - 群聊发言限速 / 话题防死循环在 `qq_send` 发送环节统一生效：当某群达到窗口上限，或某会话 bot 连续发言超限/对方久未接话时，`qq_send` 会返回「未能发送：…（发言频率已达上限 / 话题自动收尾）」而不是真正发出。这是正常节流，不是报错。
 - **语音工具 / 命令**：
@@ -380,5 +379,5 @@ interface VoiceProvider {
 - 辅助视觉默认关闭。开启需自备一个 OpenAI 兼容 VLM 服务：在配置里填好 `vision.endpoint` / `vision.apiKeySecret` / `vision.model` 三项（密钥值放部署密钥库）。注意这与默认开启的「图片作为模型附件」是**两条看图的路**，同时开会重复花钱——主模型本身能看图时，关掉辅助视觉即可。
 - QQ 空间功能依赖 NapCat 的 `send_qzone_msg` / `delete_qzone_msg`；部分 NapCat 版本未暴露空间 API，开启后调用会失败（可在控制台看错误）。
 - 回评 action 名（NapCat/SnowLuma 为 `comment_qzone`，留 `auto` 即用内置默认）按版本不同可能变化，失败请在控制台改 `qzone.commentAction`。
-- `qq_qzone（action=feeds）` 拉取列表为 best-effort，取决于 NapCat 是否实现 `get_qzone_msg_list`；取不到时返回空。
-- 动态文案生成需在配置里填好 `qzone.endpoint` / `qzone.apiKeySecret` / `qzone.model` 三项（开启自动动态/自动评论后必填；`qq_qzone（action=post）` 显式传 `content` 时不需要模型）；未配置时不会自动发动态，工具调用会返回明确提示。
+- `qq_qzone（action=feeds）` 拉取列表为 best-effort，取决于 NapCat/SnowLuma 是否实现 `get_qzone_feeds`；取不到时返回空。
+- 动态/评论文案由主模型（部署的 provider）生成，无独立配置项；开启自动动态/自动评论只需在控制台打开对应开关（需重启生效），由后台 tick / 评论事件触发主模型经本工具发布。

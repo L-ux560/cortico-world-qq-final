@@ -30,7 +30,7 @@ export interface QZoneConfig {
   /** 可见权限 ugc_right：1 公开 / 4 好友 / 16 指定人(target_uins) / 64 仅自己 / 128 黑名单。 */
   permission: number;
   /** 动态配图模式。 */
-  imageMode: 'none' | 'recent' | 'album';
+  imageMode: 'none' | 'recent';
   /** 评论回复用的 OneBot action：'auto' 表示用内置正确值（NapCat/SnowLuma 为 'comment_qzone'），也可直接填协议端 action 名。 */
   commentAction: string;
   autoReplyComments: QZoneAutoReplyConfig;

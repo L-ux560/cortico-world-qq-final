@@ -2331,7 +2331,7 @@ export class QQWorld implements World {
       barrierAfter: true,
       description:
         'QQ 空间动态系列（用一个 action 选子功能）：' +
-        'post=发一条动态（说说，content 必填，可附图 images / @人 ats / 权限 permission）；' +
+        'post=发一条动态（说说，content 必填，可附图 images / 权限 permission）；' +
         'delete=删除一条动态（tid）；reply=对一条动态发表评论（NapCat/SnowLuma 仅支持对整个动态评论，tid+content，comment_id 可不填）；' +
         'feeds=查看自己的动态列表（num）；status=查看发布器状态（开关/配额/最近动态 tid）。' +
         'content 必须由你（主模型）显式给出：按"最近聊天 + 真实看法"以第一人称写，自然有梗，1-3 句；' +
@@ -2343,7 +2343,6 @@ export class QQWorld implements World {
           content: { type: 'string', description: '【post】动态正文（必填）：以第一人称写，结合最近聊天与记忆发表真实看法/吐槽/简介/心情。' },
           topic: { type: 'string', description: '可选方向提示，如"吐槽最近的天气""介绍一下小明"。' },
           images: { type: 'array', items: { type: 'string' }, description: '【post】附图链接数组（仅支持 http(s):// 与 base64://；不支持本机文件）。' },
-          ats: { type: 'array', items: { type: 'string' }, description: '【post】@的人：昵称或 QQ 号数组。' },
           permission: { type: 'number', description: '【post】可见权限 ugc_right，默认 1=公开。' },
           tid: { type: 'string', description: '【delete/reply】动态 tid（来自 post 返回或 status 最近列表）。' },
           comment_id: { type: 'string', description: '【reply】评论 id（可选；NapCat/SnowLuma 仅支持对整个动态发表评论，comment_id 不会被使用）。' },
@@ -2365,7 +2364,6 @@ export class QQWorld implements World {
                     .filter((x): x is string => typeof x === 'string')
                     .filter((x) => /^https?:\/\//i.test(x) || /^data:image\/[a-z0-9.+-]+;base64,/i.test(x))
                 : undefined,
-              ats: Array.isArray(args.ats) ? args.ats.filter((x) => typeof x === 'string') : undefined,
               permission: typeof args.permission === 'number' ? args.permission : undefined,
             });
             return r.ok

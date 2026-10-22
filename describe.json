@@ -224,7 +224,7 @@
     },
     {
       "name": "qq_qzone",
-      "description": "QQ 空间动态系列（用一个 action 选子功能）：post=发一条动态（说说，content 必填，可附图 images / @人 ats / 权限 permission）；delete=删除一条动态（tid）；reply=对一条动态发表评论（NapCat/SnowLuma 仅支持对整个动态评论，tid+content，comment_id 可不填）；feeds=查看自己的动态列表（num）；status=查看发布器状态（开关/配额/最近动态 tid）。content 必须由你（主模型）显式给出：按\"最近聊天 + 真实看法\"以第一人称写，自然有梗，1-3 句；不要空泛、不要\"我帮你记下了\"这类托管语气。",
+      "description": "QQ 空间动态系列（用一个 action 选子功能）：post=发一条动态（说说，content 必填，可附图 images / 权限 permission）；delete=删除一条动态（tid）；reply=对一条动态发表评论（NapCat/SnowLuma 仅支持对整个动态评论，tid+content，comment_id 可不填）；feeds=查看自己的动态列表（num）；status=查看发布器状态（开关/配额/最近动态 tid）。content 必须由你（主模型）显式给出：按\"最近聊天 + 真实看法\"以第一人称写，自然有梗，1-3 句；不要空泛、不要\"我帮你记下了\"这类托管语气。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -253,13 +253,6 @@
               "type": "string"
             },
             "description": "【post】附图链接数组（仅支持 http(s):// 与 base64://；不支持本机文件）。"
-          },
-          "ats": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "【post】@的人：昵称或 QQ 号数组。"
           },
           "permission": {
             "type": "number",

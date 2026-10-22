@@ -2,6 +2,17 @@
 
 本文件记录 cortico-world-qq-final 每个版本的改动，供扩展市场的「更新说明」直接读取。
 
+## 0.6.17
+
+- 同步 README 与代码（用户约定：README 必须与代码一致），修正若干过时描述并清理死参数：
+  - 删除 README 里已随 0.6.0 事件驱动重构移除的 `qzone.systemPrompt` / `qzone.endpoint` / `qzone.apiKeySecret` / `qzone.model` 配置项说明（qzone 现已用主模型，无独立第二模型配置）。
+  - `qzone.permission` 语义修正：实为 `ugc_right`（1=公开/4=好友/16=指定人/64=仅自己/128=黑名单），旧 README「0=公开/1=好友」错误。
+  - `qzone.commentAction` 默认值修正为 `auto`（旧 README 误写 `comment_qzone`）。
+  - `qzone.autoReplyComments.chance`（不存在）替换为真实存在的 `dailyQuota` / `cooldownSec`。
+  - `qq_qzone（action=post）`：说明 `content` 为必填（工具不再自动生成文案），删除并不存在的 `ats`（@）参数；`reply` 说明 `comment_id` 可留空（NapCat/SnowLuma 仅支持对整个动态评论）。
+  - 已知限制里 `get_qzone_msg_list` → 正确的 `get_qzone_feeds`。
+  - 代码侧：移除 `qq_qzone` 工具里透传给 `post` 但 `post` 从不接收的死参数 `ats`；`qzone.imageMode` 类型收窄为 `'none' | 'recent'`（与 schema/normalize 一致）。
+
 规则：每版本一个二级标题，标题里的第一个版本号即为本节版本。
 
 ## 0.6.16
