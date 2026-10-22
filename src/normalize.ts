@@ -170,7 +170,16 @@ export function buildOutgoing(text: string, emojiDir = ''): OneBotSegment[] {
         else segments.push({ type: 'text', data: { text: whole } });
       }
     } else if (m[2] !== undefined) {
-      segments.push({ type: 'at', data: { qq: m[2], name: /^(\d{5,})$/.test(m[2]) ? undefined : m[2] } });
+      // @名字 / @QQ号 → at 段。但 @all / @全体成员 / @everyone 一律视为普通文本：
+      // at 全体是受 qq_admin（action=at_all）+ admin.enabled 授权保护的高危操作，
+      // 不能在普通回复正文里被「写个 @all 就绕过去」。
+      const mention = m[2];
+      const isAtAll = /^all$|^全体成员$|^everyone$/i.test(mention);
+      if (isAtAll) {
+        segments.push({ type: 'text', data: { text: '@' + mention } });
+      } else {
+        segments.push({ type: 'at', data: { qq: mention, name: /^(\d{5,})$/.test(mention) ? undefined : mention } });
+      }
     }
     last = re.lastIndex;
   }

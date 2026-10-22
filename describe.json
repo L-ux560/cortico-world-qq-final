@@ -369,44 +369,6 @@
       }
     },
     {
-      "name": "qq_note",
-      "description": "智能体私人笔记本（本地 notebook.jsonl；与记忆扩展的 mem_note 功能重复）系列（用一个 action 选子功能）：save=写一条长期记忆（text，尽量具体自包含）；list=列出全部条目；get=按 id 查看一条；forget=删除一条。注意：若同时装了 cortico-world-memory，请优先用它的 mem_note/mem_notes/mem_forget_note（常驻提示词+混合检索），本笔记本只落本地、不参与检索。",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "action": {
-            "type": "string",
-            "enum": [
-              "save",
-              "list",
-              "get",
-              "forget"
-            ],
-            "description": "子功能：save 写 / list 列 / get 查 / forget 删。"
-          },
-          "text": {
-            "type": "string",
-            "description": "【save】要记的内容（尽量具体、自包含）。"
-          },
-          "id": {
-            "type": "string",
-            "description": "【get/forget】条目 id（来自 list）。"
-          }
-        },
-        "required": [
-          "action"
-        ]
-      },
-      "tags": [
-        "write",
-        "read"
-      ],
-      "summary": {
-        "zh": "私人笔记本:写(save)/列(list)/查(get)/删(forget),落本地 notebook.jsonl。",
-        "en": "Private notebook: save / list / get / forget, stored in local notebook.jsonl."
-      }
-    },
-    {
       "name": "qq_admin",
       "description": "【群管理员】系列（用一个 action 选子功能，需 admin.enabled 开启；部分操作需授权指挥官：控制台白名单 / 群管理员 / 群主，或开启 admin.allowSelf 让 AI 自主）：recall=撤回一条群消息（messageId，最近2分钟内或自己发的）；at_all=@全体成员（text 附带正文）；notice=发布群公告（content）；join_list=列出待审核加群请求；join_approve=通过加群请求（flag）；join_reject=拒绝加群请求（flag, reason?）；title=设置群专属头衔（who, title）；ban=禁言/解禁成员（who, durationSec?）；ban_all=全员禁言开关（enable）；kick=踢出成员（who, rejectRejoin?，高影响且不可逆，默认 AI 不能自主踢人）。",
       "parameters": {

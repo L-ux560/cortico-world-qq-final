@@ -42,10 +42,6 @@ const TOOL_SUMMARIES: Record<string, DescribeText> = {
     zh: '定时提醒/闹钟(也是记事本):记(add)/列(list)/取消(cancel)。',
     en: 'Timed reminder / alarm (also a notepad): add / list / cancel.',
   },
-  qq_note: {
-    zh: '私人笔记本:写(save)/列(list)/查(get)/删(forget),落本地 notebook.jsonl。',
-    en: 'Private notebook: save / list / get / forget, stored in local notebook.jsonl.',
-  },
   qq_admin: {
     zh: '【群管理员】撤回/@全体/公告/审加群/头衔/禁言/全员禁言/踢人,用一个 action 选子功能。',
     en: 'Group admin: recall / mention-all / notice / review joins / title / mute / whole-mute / kick, picked by one action.',

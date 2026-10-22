@@ -288,9 +288,9 @@ export class ProactiveSpeaker {
   announceRoutine(prev: string, seg: 'sleep' | 'lazy' | 'active'): void {
     let scene: 'sleep' | 'noon' | 'wake' | '' = '';
     let fallback = '';
-    if (seg === 'sleep') { scene = 'sleep'; fallback = new Routine(r, this.log).announceText('sleep'); }
-    else if (seg === 'lazy') { scene = 'noon'; fallback = new Routine(r, this.log).announceText('noon'); }
-    else if (seg === 'active' && prev === 'sleep') { scene = 'wake'; fallback = new Routine(r, this.log).announceText('wake'); }
+    if (seg === 'sleep') { scene = 'sleep'; fallback = new Routine(this.routine, this.log).announceText('sleep'); }
+    else if (seg === 'lazy') { scene = 'noon'; fallback = new Routine(this.routine, this.log).announceText('noon'); }
+    else if (seg === 'active' && prev === 'sleep') { scene = 'wake'; fallback = new Routine(this.routine, this.log).announceText('wake'); }
     else return; // 其它切换（如 lazy→active 午休结束）不播报
     const targets = this.getTargets().filter((t) => {
       if (this.cfg.mode === 'private') return t.kind === 'private';

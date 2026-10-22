@@ -24,7 +24,7 @@ import { StickerStore } from './sticker.ts';
 import { ReminderStore, parseWhen, formatWhen } from './reminder.ts';
 import { ProactiveSpeaker, type ProactiveTarget, inRange } from './proactive.ts';
 import { makeHistoryTools } from './history-tools.ts';
-import { Notebook } from './notebook.ts';
+
 import { festivalText } from './festival.ts';
 
 /** {@link QQWorld.resolveHelperModel} 的结果：要么给全三项，要么 ok=false。 */
@@ -134,8 +134,6 @@ export class QQWorld implements World {
   private reminders!: ReminderStore;
   /** 到点提醒检查定时器句柄。 */
   private reminderTimer: ReturnType<typeof setInterval> | undefined = undefined;
-  /** 智能体私人笔记本：只落本地 notebook.jsonl（不再桥接其他 World）。 */
-  private notebook!: Notebook;
   // 发送去重：记录同会话最近一次实际发出的归一化文本，6s 内完全相同则跳过（防"一句话回复两遍"）。
   private dedupSends = new Map<string, { norm: string; ts: number }>();
   /** 状态持久化目录（来自 ctx.dataDir），用于跨重启重建 knownMessages（防串台索引）。 */
@@ -330,8 +328,6 @@ export class QQWorld implements World {
       () => void this.checkReminders().catch((e) => this.log.warn('提醒检查异常', { err: String(e) })),
       30_000,
     );
-    // 智能体私人笔记本：只落本地 notebook.jsonl（World 间不直接调用，见 notebook.ts 注释）。
-    this.notebook = new Notebook(this.dataDir, this.log.child('notebook'));
 
     // 本地 ASR 侧车作为「共享服务」预热：voice 收语音识别用同一个侧车，
     // 拉起条件只看 asr.mode==='local'（不再依赖 call.enabled）。异步预热，不阻塞启动。
@@ -359,14 +355,19 @@ export class QQWorld implements World {
       isPaused: () => this.host?.isPaused?.() ?? false,
       pushEvent: (e) => this.host.pushEvent(e as never, { trigger: 'piggyback' }),
       // 事件驱动：把"请主模型发动态/回评论"的请求交给主模型（不再用第二模型）。
+      // qzone 事件携带不可信外部内容（评论原文 / 群聊取材）：origin 用 'external' 不被当可信指令，
+      // 并用 trigger:'flush' 保证唤醒主模型回合；不可信原文已放入 meta（数据），text 只放指令。
       requestLLM: (nudge, kind, meta) => {
-        this.host.pushEvent({
-          type: kind === 'reply' ? 'qq.qzone.reply' : 'qq.qzone.post',
-          origin: 'internal',
-          source: SOURCE,
-          text: nudge,
-          meta: meta ?? {},
-        } as never);
+        this.host.pushEvent(
+          {
+            type: kind === 'reply' ? 'qq.qzone.reply' : 'qq.qzone.post',
+            origin: 'external',
+            source: SOURCE,
+            text: nudge,
+            meta: meta ?? {},
+          } as never,
+          { trigger: 'flush' },
+        );
       },
       identity: () => this.identity,
     });
@@ -783,6 +784,7 @@ export class QQWorld implements World {
     this.reminders?.flush();
     this.proactive?.stop();
     this.qzone?.stop();
+    this.stopAsrSidecar();
     if (this.driver) await this.driver.stop();
     this.driver = null;
     this.connected = false;
@@ -793,6 +795,11 @@ export class QQWorld implements World {
   /** 一轮自然收束：未确认的草稿只在本轮内有效（对齐内置 qq 的 onTurnEnded 作废草稿）。 */
   onTurnEnded(): void {
     this.pendingSends.clear();
+    // 重置本轮输出采样缓冲：是否发送由模型显式调 qq_send 决定，不调工具就不发，
+    // 旁白或没调工具的模型正文都不应被发出去。保留字段重置，避免无限增长。
+    this._tapBuf = '';
+    this._sentThisTurn.clear();
+    this._pendingReplyConvs.clear();
   }
 
   /**
@@ -806,15 +813,29 @@ export class QQWorld implements World {
     if (!due.length) return;
     for (const r of due) {
       const addr = r.address || '';
-      const body = `⏰ 到点提醒：${r.text}` + (r.scope ? `（${r.scope}）` : '');
+      // 不再直接 sendTo：地址当初由模型填写、且不查监听名单，存在被滥用来私聊任意 QQ 号的风险。
+      // 改为推事件交由主模型决定怎么说、用 qq_send 发（qq_send 会查监听名单 / 授权）。
       if (addr) {
         try {
-          await this.sendTo(addr, body);
+          this.host.pushEvent(
+            {
+              type: 'qq.reminder',
+              ts: eventTs(this.config.timezone),
+              source: SOURCE,
+              origin: 'internal',
+              text:
+                `（系统提醒）你之前记的定时提醒「${r.text}」${r.scope ? `（${r.scope}）` : ''}到点了。` +
+                `请在对应的会话（地址 ${addr}）里，自然地提醒对方这件事——用 qq_send 把这句话发过去即可。`,
+              senderKey: addr,
+              meta: { conv: addr, reminder: true },
+            } as never,
+            { trigger: 'flush' },
+          );
         } catch (e) {
-          this.log.warn('提醒发送失败', { id: r.id, address: addr, err: String(e) });
+          this.log.warn('提醒事件推送失败', { id: r.id, address: addr, err: String(e) });
         }
       } else {
-        this.log.warn('提醒缺少发送地址，已跳过发送', { id: r.id, text: r.text });
+        this.log.warn('提醒缺少发送地址，已跳过', { id: r.id, text: r.text });
       }
       // 回灌上下文：注明提醒到点已发出，并点明"做不做由我自己看着办"，避免模型误以为必须执行/反复催。
       try {
@@ -824,8 +845,7 @@ export class QQWorld implements World {
           source: SOURCE,
           origin: 'internal',
           text:
-            `我之前记的定时提醒「${r.text}」${r.scope ? `（${r.scope}）` : ''}到点了，我已经${addr ? '在该会话提醒了一声' : '准备提醒'}。` +
-            `至于这件事到底做不做、怎么做，由我自己根据当下情况决定，不必硬照办，也不反复催。`,
+            `我之前记的定时提醒「${r.text}」${r.scope ? `（${r.scope}）` : ''}到点了，我已把它交给主模型在对应会话自然地提醒对方（是否发送、怎么说由主模型决定，不必硬照办，也不反复催）。`,
           senderKey: addr,
           meta: { conv: addr, role: 'assistant', self: true },
         }, { trigger: 'piggyback' });
@@ -1277,7 +1297,9 @@ export class QQWorld implements World {
 
     // 语义判定：是否应当用语音回复（对齐 qq_bot 的 _judge_voice）。
     if (this.config.voice.enabled && this.config.voice.tts && this.config.voice.semanticJudge && text.trim()) {
-      const want = await judgeVoiceWish(text, this.voiceRuntime(), this.log);
+      const want = await judgeVoiceWish(text, this.voiceRuntime(), this.log, (usage, model) =>
+        this.host?.reportUsage(usage, { model, label: '语音语义判定' }),
+      );
       this.voiceWish.set(conv.address, want);
     }
 
@@ -1391,27 +1413,6 @@ export class QQWorld implements World {
       onRoundEnd: (): void => {},
       onAbort: (): void => { this._tapBuf = ''; },
     };
-  }
-
-  /**
-   * 回合收束钩子（框架在每轮结束都调用，含"模型只输出文本未调工具"的路径）。
-   * 若本轮由"应回复"的入站消息触发、且模型没有对该会话调用 qq_send，
-   * 则把模型生成的文本自动发往来源会话，避免"控制台有回复、QQ 收不到"。
-   */
-  onTurnEnded(): void {
-    const buf = this._tapBuf.trim();
-    const pending = [...this._pendingReplyConvs];
-    // 仅当"单一待回复会话且本轮未对其发送、且有文本"时兜底，避免多消息歧义或串轮误发。
-    if (pending.length === 1) {
-      const conv = pending[0];
-      if (!this._sentThisTurn.has(conv) && buf) {
-        this.log.warn('兜底自动发送：入站消息未调 qq_send，按模型文本回复', { conv, len: buf.length });
-        void this.sendTo(conv, buf).catch((e) => this.log.warn('兜底自动发送失败', { err: String(e) }));
-      }
-    }
-    this._tapBuf = '';
-    this._sentThisTurn.clear();
-    this._pendingReplyConvs.clear();
   }
 
   /** 实时拉取被引用消息（对齐 fat-fish get_quoted_message 的 get_msg 路径）。 */
@@ -1788,28 +1789,24 @@ export class QQWorld implements World {
     return { host: '127.0.0.1', port: this.config.asr.localPort || 8778 };
   }
 
-  /** 在 extensions/{node_modules,packages}/* 下按目录扫描 asr_sidecar.py。不写死包名，改名或换目录布局都能找到。 */
-  private scanAsrScript(): string {
-    let dir = this.packageDir;
-    for (let i = 0; i < 6; i += 1) {
-      const ext = join(dir, 'extensions');
-      for (const sub of ['node_modules', 'packages']) {
-        const base = join(ext, sub);
-        if (!existsSync(base)) continue;
-        let names: string[] = [];
-        try { names = readdirSync(base); } catch { continue; }
-        for (const name of names) {
-          if (name.startsWith('.')) continue;
-          const c = join(base, name, 'asr_sidecar.py');
-          if (existsSync(c)) return c;
-        }
+  /** 结束 ASR 侧车子进程（含其可能拉起的子进程）。侧车以 detached 方式拉起，父进程退出不会自动回收，故这里显式杀掉，避免孤儿进程。 */
+  private stopAsrSidecar(): void {
+    const c = this.asrSidecar;
+    this.asrSidecar = null;
+    if (!c) return;
+    try {
+      if (process.platform === 'win32') {
+        if (c.pid) spawn('taskkill', ['/pid', String(c.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+      } else if (c.pid) {
+        process.kill(-c.pid, 'SIGKILL'); // detached 创建独立进程组
       }
-      const up = dirname(dir);
-      if (up === dir) break;
-      dir = up;
+    } catch {
+      try { c.kill('SIGKILL'); } catch { /* 已退出 */ }
     }
-    return '';
   }
+
+  // 只使用本扩展自带的 asr_sidecar.py（packageDir 下），不再跨包/跨目录扫描：
+  // 否则别的扩展只要放一个同名文件就会被本扩展执行，存在代码执行风险。
 
   /** 探测本地 ASR 侧车依赖：python 解释器 + asr_sidecar.py + 模型目录。不写死任何机器路径：全部由 asr.local* 配置与环境变量决定。 */
   private resolveAsrSidecar(): { python: string; script: string; modelPath: string; engine: string } | null {
@@ -1823,9 +1820,8 @@ export class QQWorld implements World {
     for (const c of scriptCands) {
       if (existsSync(c)) { script = c; break; }
     }
-    if (!script) script = this.scanAsrScript();
     if (!script) {
-      this.log.warn('[asr-sidecar] 找不到 asr_sidecar.py，已尝试：' + scriptCands.join(' ; '));
+      this.log.warn('[asr-sidecar] 找不到 asr_sidecar.py（仅从本扩展目录查找）：' + scriptCands.join(' ; '));
       return null;
     }
     // venv：显式配置 > 包相对探测（<扩展>/venv_vox 或 <扩展>/venv），不写死任何机器路径
@@ -1890,7 +1886,16 @@ export class QQWorld implements World {
         [info.script, String(port), '--engine', info.engine, '--model-dir', info.modelPath],
         {
           cwd: dirname(info.script),
-          env: { ...process.env } as Record<string, string>,
+          // 只透传运行 python 所必需的最小环境，避免把部署里的密钥（如 QQ_ACCESS_TOKEN / 各 API Key）泄露给侧车子进程。
+          env: {
+            PATH: process.env.PATH || '',
+            SYSTEMROOT: process.env.SYSTEMROOT || '',
+            SYSTEMDRIVE: process.env.SYSTEMDRIVE || '',
+            TEMP: process.env.TEMP || '',
+            TMP: process.env.TMP || '',
+            HOME: process.env.HOME || '',
+            LANG: process.env.LANG || '',
+          } as Record<string, string>,
           stdio: ['ignore', logf, logf],
           detached: true,
           windowsHide: true,
@@ -2301,7 +2306,12 @@ export class QQWorld implements World {
             const r = await this.qzone.post({
               content: typeof args.content === 'string' ? args.content : undefined,
               topic: typeof args.topic === 'string' ? args.topic : undefined,
-              images: Array.isArray(args.images) ? args.images.filter((x) => typeof x === 'string') : undefined,
+              // 附图安全白名单：只允许 http(s) URL 与 base64 图片数据；拒绝 file:// 等本地/任意协议（0.6.0 重写时丢掉的过滤）。
+              images: Array.isArray(args.images)
+                ? args.images
+                    .filter((x): x is string => typeof x === 'string')
+                    .filter((x) => /^https?:\/\//i.test(x) || /^data:image\/[a-z0-9.+-]+;base64,/i.test(x))
+                : undefined,
               ats: Array.isArray(args.ats) ? args.ats.filter((x) => typeof x === 'string') : undefined,
               permission: typeof args.permission === 'number' ? args.permission : undefined,
             });
@@ -2320,7 +2330,8 @@ export class QQWorld implements World {
             const cid = String(args.comment_id ?? '');
             const content = typeof args.content === 'string' ? args.content : '';
             if (!tid || !cid || !content) return 'tid / comment_id / content 都不能为空。';
-            const r = await this.qzone.replyComment(tid, cid, content);
+            // 注意 replyComment 签名是 (commentId, text, tid)，与早期 (tid, cid, content) 不同。
+            const r = await this.qzone.replyComment(cid, content, tid);
             return r.ok ? `已回复 QQ空间评论（tid=${tid}, comment_id=${cid}）。` : `回复失败：${r.error ?? '未知错误'}（评论回复 action 名称可在控制台 qzone.commentAction 调整）`;
           }
           case 'feeds': {
@@ -2467,56 +2478,8 @@ export class QQWorld implements World {
       },
     };
 
-    const noteTool: ToolDef = {
-      name: 'qq_note',
-      tags: ['write', 'read'],
-      description:
-        '智能体私人笔记本（本地 notebook.jsonl；与记忆扩展的 mem_note 功能重复）系列（用一个 action 选子功能）：' +
-        'save=写一条长期记忆（text，尽量具体自包含）；list=列出全部条目；get=按 id 查看一条；forget=删除一条。' +
-        '注意：若同时装了 cortico-world-memory，请优先用它的 mem_note/mem_notes/mem_forget_note（常驻提示词+混合检索），本笔记本只落本地、不参与检索。',
-      parameters: {
-        type: 'object',
-        properties: {
-          action: { type: 'string', enum: ['save', 'list', 'get', 'forget'], description: '子功能：save 写 / list 列 / get 查 / forget 删。' },
-          text: { type: 'string', description: '【save】要记的内容（尽量具体、自包含）。' },
-          id: { type: 'string', description: '【get/forget】条目 id（来自 list）。' },
-        },
-        required: ['action'],
-      },
-      handler: async (args, ctx) => {
-        const action = String(args.action ?? '');
-        switch (action) {
-          case 'save': {
-            const text = typeof args.text === 'string' ? args.text.trim() : '';
-            if (!text) return { error: 'text 不能为空' };
-            const r = await this.notebook.save(text);
-            const preview = text.length > 60 ? text.slice(0, 60) + '…' : text;
-            return { text: `已记到笔记本（本地）：${preview}`, ok: true, id: r.id, backend: r.backend };
-          }
-          case 'list': {
-            const entries = await this.notebook.list();
-            if (!entries.length) return { text: '笔记本还是空的，还没记过东西。', ok: true, count: 0, backend: this.notebook.backend, entries: [] };
-            const lines = entries.map((e) => `${e.seq != null ? e.seq + '. ' : '- '}${e.text}`);
-            return { text: `笔记本（本地）共 ${entries.length} 条：\n` + lines.join('\n'), ok: true, count: entries.length, backend: this.notebook.backend, entries: entries.map((e) => ({ id: e.id, text: e.text, ts: e.ts })) };
-          }
-          case 'get': {
-            const id = typeof args.id === 'string' ? args.id.trim() : '';
-            if (!id) return { error: 'id 不能为空' };
-            const e = await this.notebook.get(id);
-            if (!e) return { text: `没找到 id=${id} 的笔记。`, ok: true, found: false };
-            return { text: `笔记 #${id}：${e.text}`, ok: true, found: true, id: e.id, content: e.text, ts: e.ts };
-          }
-          case 'forget': {
-            const id = typeof args.id === 'string' ? args.id.trim() : '';
-            if (!id) return { error: 'id 不能为空' };
-            const ok = await this.notebook.forget(id);
-            return ok ? { text: `已删除笔记本 #${id}。`, ok: true, id } : { text: `没找到 id=${id} 的笔记，未删除。`, ok: true, found: false };
-          }
-          default:
-            return `未知 action：「${action}」（支持 save/list/get/forget）。`;
-        }
-      },
-    };
+    // qq_note 已移除：与 cortico-world-memory 的 mem_note 功能重复（认证评审 #104）。
+    // 长期记忆请改用记忆扩展的 mem_note / mem_notes / mem_forget_note（常驻提示词 + 混合检索）。
 
     const adminTool: ToolDef = {
       name: 'qq_admin',
@@ -2721,7 +2684,7 @@ export class QQWorld implements World {
      * 组装所有工具。
      */
 
-    const tools: ToolDef[] = [forwardById, send, confirm, viewImage, stickerStats, stickerToFavorites, stickerTag, proactiveTool, qzoneTool, poke, reminderTool, noteTool, adminTool, ...makeHistoryTools({
+    const tools: ToolDef[] = [forwardById, send, confirm, viewImage, stickerStats, stickerToFavorites, stickerTag, proactiveTool, qzoneTool, poke, reminderTool, adminTool, ...makeHistoryTools({
       getHost: () => this.host,
       sourceId: SOURCE,
       timezone: this.config.timezone,

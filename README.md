@@ -29,7 +29,7 @@ Cortico 的 **QQ（OneBot v11 / NapCat）** World 扩展。以 `fat-fish` 仓库
 | 群聊发言频率限制 | — | ✅ 增量吸收 | 每个群在滑动窗口内可发消息总量的硬上限（含主动与回复），防刷屏 |
 | 话题自动结束 / 防死循环 | — | ✅ 增量吸收 | 单会话 bot 连续发言超上限、或对方长时间静默则自动收尾；主动说话还按话题相似度去重，防反复换汤不换药 |
 | 情绪系统（全局心情） | `emotion.py` | ➡️ 已拆到 `cortico-bot-qq-persona` | 情绪/好感度/外号三块 bot 内部状态自 `0.5.0` 起迁移到独立 Persona 扩展 `cortico-bot-qq-persona`，装它即可获得 `qq_mood` / `qq_affinity_*` / `qq_alias_*` 工具与系统前缀注入 |
-| AI 作息（睡眠/午休/活跃） | — | ✅ 增量吸收 | 按真实时间切换三段：睡眠段暂停主动冒泡（被动回复照常）、午休段放缓主动节奏、活跃段正常；时段切换由 LLM 现场生成随性播报（非固定套话） |
+| AI 作息（睡眠/午休/活跃） | — | ✅ 增量吸收 | 按真实时间切换三段：睡眠段暂停主动冒泡（被动回复照常）、午休段放缓主动节奏、活跃段正常；时段切换时向可主动说话的会话推送一条播报提示，由主模型决定措辞并调用 qq_send 发出（无第二模型，生成失败才回退兜底文案） |
 | 闹钟 / 记事本 | — | ✅ 新增 | 让智能体把"需要定时做的事 / 约定"记下来（`qq_reminder（action=add）`），到点自动在该会话提醒（`qq_reminder（action=list）` 查、`qq_reminder（action=cancel）` 删）；落盘持久化、跨重启不丢 |
 | 好感度（关系分） | — | ✅ 新增 | 对**每个用户独立**维护一份好感度（-100~100，可正可负、随互动上下浮动，不是只增不减）；`qq_affinity_adjust` 加减、`qq_affinity_get` 查、`qq_affinity_list` 总览；当前用户好感度会**自动注入对话上下文**，影响语气与分寸 |
 | 语音（ASR + TTS） | — | ✅ 新增 | 听语音（ASR 转文字）+ 说语音（TTS）。**供应商可插拔**，内置 `native`（OneBot 原生，零依赖）、`custom`（远程 OpenAI 兼容端点 + API Key）、`local`（本地/自建模型如 VoxCPM2 经 vLLM-Omni，免 Key、慢推理可加超时、支持额外参数透传）；是否说话由语义判定决定，并非每条都念 |
@@ -83,7 +83,7 @@ Cortico 的 **QQ（OneBot v11 / NapCat）** World 扩展。以 `fat-fish` 仓库
 | `routine.enabled` | `false` | **AI 作息**开关（默认关）。开启后 bot 按真实时间切换睡眠/午休/活跃三段 |
 | `routine.sleepStart` / `routine.sleepEnd` | `23:00` / `07:30` | 睡眠段起止（`HH:MM`，可跨午夜）。睡眠段内**自动暂停主动冒泡**（被动回复照常）|
 | `routine.lazyStart` / `routine.lazyEnd` | `12:00` / `14:00` | 午休段起止。该段内主动说话节奏放缓（更短更随意）|
-| `routine.greetSleep` / `routine.greetWake` / `routine.greetLazy` | 见源码默认值 | 时段切换时的**兜底**文案：正常播报由 LLM 现场生成（每次说法不固定），仅当生成失败才回退到这几句；留空=无兜底直接跳过 |
+| `routine.greetSleep` / `routine.greetWake` / `routine.greetLazy` | 见源码默认值 | 时段切换时的**兜底**文案：正常播报由主模型根据推送的提示生成（每次说法不固定），仅当生成失败才回退到这几句；留空=无兜底直接跳过 |
 | `reminder.enabled` | `true` | **到点提醒**开关。开启后到点自动把提醒发到对应会话；记录/查询/取消不受此开关影响（始终可用）|
 | `affinity.enabled` | `true` | **好感度系统**开关。开启后，与该用户对话时其当前好感度会自动注入上下文、影响态度与分寸；`qq_affinity_*` 工具始终可用 |
 | `admin.enabled` | `false` | **群管理员能力**开关。开启后可在群里执行管理员操作（群撤回 / @全体成员 / 发群通知 / 审核进群 / 给予群头衔 / 禁言 / 全员禁言）。需要 bot 是群管理员或群主，否则 QQ 会拒绝操作；`qq_admin（action=recall/at_all/notice/join_*/title/ban/ban_all/kick）` 工具始终可用，关闭时返回「功能未开启」|
@@ -128,7 +128,7 @@ Cortico 的 **QQ（OneBot v11 / NapCat）** World 扩展。以 `fat-fish` 仓库
 - **睡眠段**（`sleepStart`→`sleepEnd`，可跨午夜）：暂停"主动冒泡"定时器（不对着没找它的人发起话题），但被动回复照常——即"睡着了但被戳醒仍会回"。
 - **午休段**（`lazyStart`→`lazyEnd`）：主动说话节奏放缓。
 - **活跃段**：正常主动冒泡。
-- 进入/离开某个时段时，会向所有可主动说话的会话**播报一句**（去睡 / 醒来 / 午休）。这句文案**由 LLM 现场生成**（带人设+记忆），所以每次说法都不一样、不会念固定套话；只有在 LLM 生成失败时才回退到 `routine.greetSleep/Wake/Lazy` 兜底文案。
+- 进入/离开某个时段时，会向所有可主动说话的会话**推送一条播报提示**：由主模型根据该提示决定措辞并调用 `qq_send` 发出（带人设+记忆），所以每次说法都不一样、不会念固定套话；只有在主模型生成/发送失败时才回退到 `routine.greetSleep/Wake/Lazy` 兜底文案。
 - 时段状态与"上次切换到的段"会持久化到 `proactive-state.json`；首次上线（无存档）不会立刻补播报，从下一次真实切换开始播。
 
 > 作息与情绪、记忆互不冲突：睡眠段只是收起"主动找人"，并不清空心情或记忆。
@@ -278,11 +278,6 @@ interface VoiceProvider {
   - `qq_affinity_get`：查询某人当前好感度（`who` 规则同上）。
   - `qq_affinity_list`：按好感度从高到低列出所有人（qq / 昵称 / 分数 / 状态 / 上次原因）。
   - 当前用户好感度会以"关系备忘"形式自动注入对话上下文（受 `affinity.enabled` 控制），bot 据此调节语气分寸。
-- **智能体私人笔记本（notebook）**：让 AI 记录自己想记的东西，独立于聊天/记忆系统之外。**只落本插件 `dataDir/notebook.jsonl`（本地后端）**。
-  - `qq_note（action=save）`：记一条笔记（`text` 必填）。若同时安装了 `cortico-world-memory`，请优先用它的 `mem_note`/`mem_notes`/`mem_forget_note`（常驻环境提示词 + 混合检索）——两边功能重复，本笔记不参与检索。
-  - `qq_note（action=list）`：列出全部笔记，返回编号/条目 id 与内容。
-  - `qq_note（action=get）`：按 id 查看某条笔记完整内容。
-  - `qq_note（action=forget）`：按 id 删除一条笔记。
 
 - **群管理员能力（admin）**：当 bot 账号是群管理员 / 群主时，可在群里执行后台管理操作。功能总开关 `admin.enabled`（默认关，控制台热开启）。开关仅控制是否真正执行，`qq_admin（action=recall/at_all/notice/join_*/title/ban/ban_all/kick）` 工具始终可用（关闭时返回「功能未开启」）。所有操作需要 bot 具备对应管理员权限，否则 QQ 会拒绝（返回具体错误）。
   - `qq_admin（action=recall）`：撤回一条群消息（`messageId` 为要撤回消息的 `message_id`，仅能撤回近 2 分钟内或自己发的消息）。
@@ -328,18 +323,6 @@ interface VoiceProvider {
 - 依赖协议端支持 `add_custom_face`（SnowLuma 支持；NapCat/Lagrange 等不一定有该扩展接口）。不支持时**自动降级**：图片照常存盘、能用，只是不进 QQ 收藏，不会报错。
 - 注意 QQ 收藏表情有数量上限，超出会失败（结果里会告知失败张数），删掉一些 QQ 收藏表情后重试即可。
 
-## 智能体私人笔记本（notebook）
-
-让 AI 拥有自己的「私人笔记本」，记录它想记的东西（灵感、待办、对某人的看法、不想忘的小事……），与对话历史、闹钟/记事本、长期记忆系统解耦。
-
-- **后端自动路由（零配置）**：
-  - 当 `cortico-world-memory` 记忆插件启用时，笔记走记忆插件的笔记库 `qq` scope：享受常驻环境提示词（记忆插件会把 `qq` scope 笔记并入 agent 的上下文）与混合检索（BM25 + 向量 + RRF）；同一台机器上多个 world 共享记忆库。
-  - 当记忆插件未安装或未启用时，自动回退到本插件的原生 JSONL 文件：`<dataDir>/notebook.jsonl`，每条用稳定字符串 id（`n_<时间戳>_<随机>`）标识，完全离线、无外部依赖。
-  - 路由在**每次调用时惰性判定**，与 world 启动顺序无关：即使记忆插件中途启/停，笔记也能正确切换后端，不会写错地方。
-- **工具**：`qq_note（action=save）` / `qq_note（action=list）` / `qq_note（action=get）` / `qq_note（action=forget）`（见上方「工具」节）。`qq_note（action=save）` 的返回会告诉模型当前记到了哪个后端（`memory` / `native`）。
-- **典型用法**：在对话中模型自发调用 `qq_note（action=save）` 记下灵感；想回顾时 `qq_note（action=list）` 列出、`qq_note（action=get）` 看详情；确定不再需要时 `qq_note（action=forget）` 删除。
-- **与闹钟/记事本的区别**：闹钟/记事本（`reminder`）是带时间的提醒，会被触发；笔记本是纯「想记就记」的随手记，不会被主动触发，只被动查询/注入（记忆插件模式下）。
-
 ## 接入教程
 
 首次接入、不知道从哪下手的话，看这份图文教程（含逐步截图）：
@@ -380,9 +363,9 @@ interface VoiceProvider {
 
 ## 与 cortico-world-memory 的关系（可选，非依赖）
 
-「智能体私人笔记本」（`qq_note（action=save/list/get/forget）` 工具）只写入本扩展自己的 `dataDir/notebook.jsonl`，**开箱即用、不需要装任何东西**。
+长期记忆（笔记 / 记忆）请使用 [`cortico-world-memory`](https://www.npmjs.com/package/cortico-world-memory) 的 `mem_note` / `mem_notes` / `mem_forget_note`（常驻环境提示词 + 混合检索）。本扩展**不再自带笔记本工具**（原 `qq_note` 与之功能重复，已在评审 #104 中移除），避免两套记忆入口互相打架。
 
-若同时安装了 [`cortico-world-memory`](https://www.npmjs.com/package/cortico-world-memory)，它的 `mem_note`/`mem_notes`/`mem_forget_note` 与本笔记本功能重复——模型应优先用前者（常驻环境提示词 + 混合检索）。两者数据互不相通，也没有任何耦合：本扩展不 import、不探测、不调用该插件（认证评审 #104 明确要求 World 之间不得直接调用）。
+本扩展与记忆插件数据互不相通、也没有任何耦合：本扩展不 import、不探测、不调用该插件（认证评审 #104 明确要求 World 之间不得直接调用）。
 
 ## 已知限制 / 与原版的差异
 

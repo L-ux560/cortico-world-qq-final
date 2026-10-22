@@ -4,6 +4,15 @@
 
 规则：每版本一个二级标题，标题里的第一个版本号即为本节版本。
 
+## 0.6.10
+
+- 认证评审（#104）收尾：
+  - 移除 `qq_note` 工具（原 save/list/get/forget 四个子功能）。它与 `cortico-world-memory` 的 `mem_note`/`mem_notes`/`mem_forget_note` 功能重复，两个都装会让模型同时面对两套记忆入口、互相打架。长期记忆请改用记忆扩展（常驻环境提示词 + 混合检索）。`definition.ts`/`describe.json`/`README` 同步移除相关描述，`notebook.ts` 本地后端保留但不再对外暴露工具。
+  - 安全加固：`@all` / `@全体成员` / `@everyone` 在普通回复正文里不再被解析成「at 全体」段。at 全体是 `qq_admin`（action=at_all）+ `admin.enabled` 授权保护的高危操作，不能靠在正文里写 `@all` 绕过鉴权。
+  - 安全加固：QQ 空间评论回复 / 主动发说说 的 nudge 不再把不可信的外部内容（评论者昵称、评论原文、最近聊天取材）拼进 prompt 文本，改为放进事件 meta，由主模型按需读取。
+  - 安全加固：`allowPrivateRedirect` 默认改为 `false`（群里任何人无法借 `qq_send` 让 bot 私聊任意 QQ 号）；语音语义判定的 `judgeEndpoint`/`judgeApiKeySecret` 默认留空（须显式配置才启用，不再跟随主模型密钥）；`QQ_SECRETS` 删除已无处使用的 `OPENROUTER_API_KEY`/`DEEPSEEK_API_KEY`。
+  - 语音语义判定（`judgeVoiceWish`）补上 `reportUsage` 用量上报，控制台可看到语音判定模型的 token 消耗（认证评审 #104 要求自有模型调用须上报用量）。
+
 ## 0.6.9
 
 - 修复：启用作息功能后「总览面板」崩溃加载不出来。

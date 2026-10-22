@@ -252,7 +252,9 @@ export interface QQWorldConfig {
 
 export const QQ_DEFAULTS: QQWorldConfig = {
   mode: 'reverse',
-  allowPrivateRedirect: true,
+  // 默认关闭：qq_send 发 private:<QQ> 时一律查监听名单，群里任何人无法让 bot 私聊任意 QQ 号。
+  // 仅当你确实需要 bot 主动私聊「非监听会话里的某个人」时再开（此时仍受监听/授权约束保护）。
+  allowPrivateRedirect: false,
   wsUrl: 'ws://127.0.0.1:3001',
   // 反向监听默认只绑回环：绑 0.0.0.0 会让同网段任何机器都能连进来，
   // 拿到 bot 要发的消息、伪造事件，甚至借群管鉴权接口越权。要对外监听请显式改这一项。
@@ -353,8 +355,10 @@ export const QQ_DEFAULTS: QQWorldConfig = {
     tts: true,
     semanticJudge: true,
     audioFallback: true,
-    judgeEndpoint: 'https://api.deepseek.com/v1',
-    judgeApiKeySecret: 'DEEPSEEK_API_KEY',
+    // 默认留空：不跟随主模型密钥。用户必须显式填好 judgeEndpoint + 对应的 judgeApiKeySecret（在密钥里配置好名字）
+    // 才启用语音语义判定；否则语音只做 ASR，不做「是否想说话」的语义判断。
+    judgeEndpoint: '',
+    judgeApiKeySecret: '',
     judgeModel: 'deepseek-chat',
     voiceBaseUrl: '',
     voiceApiKeySecret: 'VOICE_API_KEY',
@@ -396,7 +400,9 @@ export const QQ_DEFAULTS: QQWorldConfig = {
   },
 };
 
-export const QQ_SECRETS = ['QQ_ACCESS_TOKEN', 'OPENROUTER_API_KEY', 'DEEPSEEK_API_KEY', 'VOICE_API_KEY'];
+// 本扩展真正用到的密钥：反向 WS 鉴权 token（QQ_ACCESS_TOKEN）与语音服务密钥（VOICE_API_KEY）。
+// 原先的 OPENROUTER_API_KEY / DEEPSEEK_API_KEY 已随第二模型移除而无处使用，删除。
+export const QQ_SECRETS = ['QQ_ACCESS_TOKEN', 'VOICE_API_KEY'];
 
 /** worlds.qq 配置段：业务参数 + 必需的 enabled 开关。 */
 export type QQConfigSection = QQWorldConfig & WorldSection;
