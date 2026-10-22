@@ -501,7 +501,7 @@ export const QQ_CONFIG_GROUP: ConfigGroup = {
       'worlds.qqbot.admin.allowSelf': { type: 'boolean', title: 'AI可自主管理', 'x-hot': true, description: '为 true 时，bot（AI 本人）可自行判断并执行管理操作（撤回/禁言/公告等），无需某个人下令。为 false 则仅“授权指挥官”（白名单/群管/群主）能触发，普通成员无法让 bot 行动，但 bot 也不会在有人刚发言的会话里自主管理。群主/管理员始终受 protectOwner/protectAdmins 保护。注意：踢人（qq_admin 的 action=kick）不受此项放行，由“AI可自主踢人”单独控制。' },
       'worlds.qqbot.admin.allowSelfKick': { type: 'boolean', title: 'AI可自主踢人', 'x-hot': true, description: '为 true 时，bot 可自行判断把成员踢出群（无需人下令）。默认 false：踢人不可逆，只认“授权指挥官”（白名单/群管理员/群主）在对话里明确下令，普通成员与 AI 自主都不行。群主/管理员仍受 protectOwner/protectAdmins 保护。' },
       'worlds.qqbot.admin.kickRejectRejoin': { type: 'boolean', title: '踢人时拒绝再加群', 'x-hot': true, description: '为 true（默认）时，踢出群聊的同时附带“拒绝该用户再次加群”。为 false 则只踢出，对方仍可重新申请（能否进来取决于审核设置）。' },
-      'worlds.qqbot.allowPrivateRedirect': { type: 'boolean', title: '允许私聊分流', 'x-hot': true, description: '为 true 时，群里若话题涉及隐私 / 尴尬 / 敏感，bot 可把回复改为私聊发送给当事人（而非群里公开）：qq_send 对 private:<QQ> 目标会跳过监听名单限制，直接向该群成员私聊。为 false 则只能在群里回复，无法私聊分流。' },
+      'worlds.qqbot.allowPrivateRedirect': { type: 'boolean', title: '允许私聊分流', 'x-hot': true, description: '为 true 时，群里若话题涉及隐私 / 尴尬 / 敏感，bot 可把回复改为私聊发送给当事人（而非群里公开）：qq_send 对 private:<QQ> 目标会跳过监听名单限制，直接向该群成员私聊。默认关闭：为 false 时只能在群里回复，无法私聊分流（private 目标仍须先经监听名单）。' },
       'worlds.qqbot.selfName': { type: 'string', title: '自称(第一人称)', 'x-hot': true, description: '主动说话调度器与作息状态文本里使用的自称。留空=回退到登录 QQ 昵称、再回退「我」；填了则强制用此值，换称呼零改码。' },
   },
   },
@@ -769,7 +769,7 @@ export function normalizeConfig(raw: QQConfigSection): QQWorldConfig {
   if (typeof adm.allowSelfKick !== 'boolean') adm.allowSelfKick = false;
   if (typeof adm.kickRejectRejoin !== 'boolean') adm.kickRejectRejoin = true;
   c.admin = adm as QQWorldConfig['admin'];
-  if (typeof c.allowPrivateRedirect !== 'boolean') c.allowPrivateRedirect = true;
+  if (typeof c.allowPrivateRedirect !== 'boolean') c.allowPrivateRedirect = false; // 默认关闭：private 目标须先经监听名单
   return c;
 }
 

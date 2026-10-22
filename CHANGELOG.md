@@ -4,6 +4,13 @@
 
 规则：每版本一个二级标题，标题里的第一个版本号即为本节版本。
 
+## 0.6.15
+
+- 安全加固：`allowPrivateRedirect` 的有效默认值修正为关闭。
+  - 根因：`QQWorldConfig` 默认值里写的是 `false`（注释也写"默认关闭"），但 `normalizeConfig()` 里有一句 `if (typeof c.allowPrivateRedirect !== 'boolean') c.allowPrivateRedirect = true;` 把缺省值强行翻成 `true`，导致实际默认是"开启"——群里任何人都能让 bot 私聊任意 QQ 号（跳过监听名单）。现改为 `= false`，与文档/默认对象一致。
+  - 同步把 schema 描述里"默认 true 可用"改为"默认关闭"。
+  - 注：本轮审计里其余安全/清理项（qzone 附图 http(s)/base64 白名单、qzone 外部内容走 `origin:'external'`、回复禁用 @all、ASR 只扫本包+stop 结束孤儿进程+最小 env、去掉 onTurnEnded 直接发、提醒改推事件、语音判定密钥默认空+上报用量、删未用 QQ_SECRETS 密钥、去重 qq_note、beta 弃用、qzone.ts 导入/replyComment 签名/proactive `this.routine`、README 对齐）均已在 0.6.10–0.6.13 完成，本次经核对代码确认无回归；`tsc` 现存报错均为预存且 tsx 运行期会被擦除的 `import type` 或 cortico 类型不导出问题，非本次引入、不影响 tsx 运行时。
+
 ## 0.6.14
 
 - 给合并转发（`qq.forward`）事件加「转发来源群/人」可见标签，帮助模型判断语境。
