@@ -16,14 +16,13 @@ export type ProactiveTarget = ActiveGroup | ActivePrivate;
 
 export interface RoutineConfig {
   enabled: boolean;
-  targetMode: 'private' | 'group' | 'both';
-  silentStart: string;
-  silentEnd: string;
-  noonStart: string;
-  noonEnd: string;
-  wakeAnnounce: boolean;
-  noonAnnounce: boolean;
-  sleepAnnounce: boolean;
+  sleepStart: string;
+  sleepEnd: string;
+  lazyStart: string;
+  lazyEnd: string;
+  greetSleep: string;
+  greetWake: string;
+  greetLazy: string;
 }
 
 export class Routine {
@@ -35,11 +34,11 @@ export class Routine {
   }
 
   isLunchBreak(): boolean {
-    return this.cfg.enabled && inRange(this.cfg.noonStart, this.cfg.noonEnd);
+    return this.cfg.enabled && inRange(this.cfg.lazyStart, this.cfg.lazyEnd);
   }
 
   isSleep(): boolean {
-    return this.cfg.enabled && inRange(this.cfg.silentStart, this.cfg.silentEnd);
+    return this.cfg.enabled && inRange(this.cfg.sleepStart, this.cfg.sleepEnd);
   }
 
   /** 当前作息切到了哪个阶段（用于到点播报）。返回 null 表示没切。 */
@@ -50,11 +49,11 @@ export class Routine {
     return this.isSleep() ? 'off' : 'on';
   }
 
-  /** 到点播报文案（很短，主模型可原样用作碎碎念，也可自行发挥）。 */
+  /** 到点播报文案（很短，主模型可原样用作碎碎念，也可自行发挥）。优先用配置里的问候语，缺省时回退到内置文案。 */
   announceText(scene: 'sleep' | 'noon' | 'wake'): string {
-    if (scene === 'sleep') return '到点睡啦，先去躺着，明天再聊～';
-    if (scene === 'noon') return '午休一下，吃饱喝足再战。';
-    return '醒啦，新的一天开始咯。';
+    if (scene === 'sleep') return this.cfg.greetSleep || '到点睡啦，先去躺着，明天再聊～';
+    if (scene === 'noon') return this.cfg.greetLazy || '午休一下，吃饱喝足再战。';
+    return this.cfg.greetWake || '醒啦，新的一天开始咯。';
   }
 }
 
@@ -72,11 +71,8 @@ export function inRange(start: string, end: string): boolean {
 function routineSegment(cfg: RoutineConfig): string {
   const parts: string[] = [];
   if (cfg.enabled) {
-    parts.push(`你的作息：约 ${cfg.silentStart}–${cfg.silentEnd} 睡眠（睡眠段不主动冒泡），约 ${cfg.noonStart}–${cfg.noonEnd} 午休（午休段语气可以随意点，但别太长）。`);
+    parts.push(`你的作息：约 ${cfg.sleepStart}–${cfg.sleepEnd} 睡眠（睡眠段不主动冒泡），约 ${cfg.lazyStart}–${cfg.lazyEnd} 午休（午休段语气可以随意点，但别太长）。`);
   }
-  if (cfg.wakeAnnounce) parts.push(`醒来（${cfg.silentEnd} 附近）可发一句「早/醒啦」。`);
-  if (cfg.noonAnnounce) parts.push(`午休开始（${cfg.noonStart} 附近）可发一句午休碎碎念。`);
-  if (cfg.sleepAnnounce) parts.push(`睡前（${cfg.silentEnd} 附近）可发一句晚安/收尾。`);
   return parts.length ? '## AI 作息（routine）\n' + parts.join('\n') : null;
 }
 
@@ -188,7 +184,7 @@ export class ProactiveSpeaker {
     const who = this.cfg.withNickname ? `（你在和 ${this.label(t)} 说话）` : '';
     const hint = forced ? '（这是被手动触发的主动说话，请务必说点有意思的。）' : '';
     const r = this.routine;
-    const lazy = !!(r?.enabled && (inRange(r.noonStart, r.noonEnd) || inRange(r.silentStart, r.silentEnd)));
+    const lazy = !!(r?.enabled && (inRange(r.lazyStart, r.lazyEnd) || inRange(r.sleepStart, r.sleepEnd)));
     const lazyNote = lazy ? '（当前是午休/睡眠时段，简短随意点就行。）' : '';
     return (
       `你现在决定主动向 ${this.label(t)} 说一句话（这是主动冒泡，不是回复）。` +
@@ -248,8 +244,8 @@ export class ProactiveSpeaker {
     if (this.routine.enabled) {
       const r = this.routine;
       const seg: 'sleep' | 'lazy' | 'active' =
-        inRange(r.silentStart, r.silentEnd) ? 'sleep'
-        : inRange(r.noonStart, r.noonEnd) ? 'lazy'
+        inRange(r.sleepStart, r.sleepEnd) ? 'sleep'
+        : inRange(r.lazyStart, r.lazyEnd) ? 'lazy'
         : 'active';
       if (seg !== this.lastRoutineSegment) {
         if (this.lastRoutineSegment) await this.announceRoutine(this.lastRoutineSegment, seg);

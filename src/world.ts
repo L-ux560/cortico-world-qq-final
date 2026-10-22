@@ -578,9 +578,9 @@ export class QQWorld implements World {
   private routineSegmentText(): string {
     const r = this.config.routine;
     if (!r?.enabled) return '';
-    const phase = inRange(r.silentStart, r.silentEnd)
+    const phase = inRange(r.sleepStart, r.sleepEnd)
       ? 'sleep'
-      : inRange(r.noonStart, r.noonEnd)
+      : inRange(r.lazyStart, r.lazyEnd)
       ? 'lazy'
       : 'active';
     const self = this.resolveSelfRef();

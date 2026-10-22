@@ -4,6 +4,13 @@
 
 规则：每版本一个二级标题，标题里的第一个版本号即为本节版本。
 
+## 0.6.9
+
+- 修复：启用作息功能后「总览面板」崩溃加载不出来。
+  - 根因：配置重命名（`config.ts` 真实字段为 `sleepStart/sleepEnd/lazyStart/lazyEnd/greetSleep/greetWake/greetLazy`）未同步到读取处，`proactive.ts` 的 `Routine` 类与 `world.ts` 的 `routineSegmentText()` 仍使用旧字段名 `silentStart/silentEnd/noonStart/noonEnd/...`。启用后 `inRange(undefined, undefined)` 触发 `undefined.split` 抛错，环境提示（qq.routine）构建失败，导致面板拉取失败。
+  - 受影响处全部改为真实字段：`RoutineConfig` 接口、`Routine.isSleep/isLunchBreak/announceText`、`routineSegment()` 模块函数、`ProactiveSpeaker.buildNudge/tick` 的时段判定、`world.routineSegmentText()`。
+  - `announceText()` 改为优先使用配置里的问候语（greetSleep/greetLazy/greetWake），缺省时回退内置文案。
+
 ## 0.6.8
 
 - 修复：宠物没有任何把标签写回表情包索引的通道——`sticker.ts` 里 `emotion/usage/tag` 只在收货那一刻由自动标注写入，此后无代码路径可改；对外只有只读的 `qq_sticker_stats` 与只同步的 `qq_sticker_to_favorites`，宠物想修正/补充标注（尤其「未知」）没有任何接口，手工改 `sticker-index.json` 又会被内存里的旧 map 在下次落盘时悄悄覆盖。
