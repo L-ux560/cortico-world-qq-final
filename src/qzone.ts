@@ -129,10 +129,14 @@ export class QZonePoster {
       ugc_right: this.resolveUgcRight(opts.permission, this.cfg.permission),
     };
     if (opts.topic) params.topic = opts.topic;
-    const res = await this.callApi('send_qzone_msg', params);
-    if (res.error) return { ok: false, error: `发布失败：${res.error}` };
-    // send_qzone_msg 成功时 data 为 null（不返回 tid），tid 记为未知。
-    const tid = String((res.data as { tid?: string })?.tid ?? '');
+    let raw: unknown;
+    try {
+      raw = await this.callApi('send_qzone_msg', params);
+    } catch (e) {
+      return { ok: false, error: `发布失败：${e instanceof Error ? e.message : String(e)}` };
+    }
+    // driver.callApi 已解包：raw 即 OneBot 返回的 data（send_qzone_msg 成功时为 null，SnowLuma 不返回 tid）。
+    const tid = String((raw as { tid?: string } | null)?.tid ?? '');
     this.recordPost(tid, content);
     this.log.info('posted', { tid });
     return { ok: true, tid, text: content };
@@ -162,26 +166,36 @@ export class QZonePoster {
     if (!tid) return { ok: false, error: '缺少 tid（动态 id）。' };
     // commentAction 为 'auto' 时用内置正确 action（NapCat/SnowLuma 为 'comment_qzone'）；否则用配置里填的协议端 action 名。
     const action = this.cfg.commentAction && this.cfg.commentAction !== 'auto' ? this.cfg.commentAction : 'comment_qzone';
-    const res = await this.callApi(action, { tid, content: text });
-    if (res.error) return { ok: false, error: `回复失败：${res.error}` };
+    try {
+      await this.callApi(action, { tid, content: text });
+    } catch (e) {
+      return { ok: false, error: `回复失败：${e instanceof Error ? e.message : String(e)}` };
+    }
     this.log.info('replied comment', { commentId, tid });
     return { ok: true };
   }
 
-  async getFeeds(num: number): Promise<{ ok: boolean; feeds?: unknown[]; error?: string }> {
+  async getFeeds(num: number): Promise<{ ok: boolean; feeds?: unknown[]; hasMore?: boolean; error?: string }> {
     if (!this.cfg.enabled) return { ok: false, error: 'QQ空间未启用' };
     // NapCat/SnowLuma 用 get_qzone_feeds，参数为 { page_num, count }。
-    const res = await this.callApi('get_qzone_feeds', { page_num: 1, count: num });
-    if (res.error) return { ok: false, error: res.error };
-    const data = (res.data ?? {}) as { feeds?: Array<Record<string, unknown>> };
-    // feeds 条目是 HTML 片段，剥标签后给模型可读文本。
+    let raw: unknown;
+    try {
+      raw = await this.callApi('get_qzone_feeds', { page_num: 1, count: num });
+    } catch (e) {
+      return { ok: false, error: `获取动态列表失败：${e instanceof Error ? e.message : String(e)}` };
+    }
+    // driver.callApi 已解包：raw 即 data（{ feeds, has_more }）；feed 句柄字段是 key（非 tid）。
+    const data = (raw ?? {}) as { feeds?: Array<Record<string, unknown>>; has_more?: boolean };
+    // 条目含 HTML 片段，剥标签给模型可读文本；tid 映射为 key 供评论/点赞/删除动作定位该动态。
     const feeds = (data.feeds ?? []).map((f) => ({
+      tid: f.key,
       uin: f.uin,
       nickname: f.nickname,
       time: f.time,
-      text: typeof f.html === 'string' ? QZonePoster.stripHtml(String(f.html)) : (f.content ?? ''),
+      appid: f.appid,
+      text: typeof f.html === 'string' ? QZonePoster.stripHtml(String(f.html)) : (typeof f.content === 'string' ? f.content : ''),
     }));
-    return { ok: true, feeds };
+    return { ok: true, feeds, hasMore: !!data.has_more };
   }
 
   /** 把 QQ空间动态 feed 的 HTML 片段转成可读纯文本（供模型消费）。 */
@@ -201,8 +215,11 @@ export class QZonePoster {
 
   async delete(tid: string): Promise<{ ok: boolean; error?: string }> {
     // NapCat/SnowLuma 用 delete_qzone_msg。
-    const res = await this.callApi('delete_qzone_msg', { tid });
-    if (res.error) return { ok: false, error: res.error };
+    try {
+      await this.callApi('delete_qzone_msg', { tid });
+    } catch (e) {
+      return { ok: false, error: `删除失败：${e instanceof Error ? e.message : String(e)}` };
+    }
     return { ok: true };
   }
 

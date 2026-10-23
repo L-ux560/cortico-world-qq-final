@@ -2389,7 +2389,7 @@ export class QQWorld implements World {
             const num = typeof args.num === 'number' && Number.isFinite(args.num) ? Math.max(1, Math.min(50, args.num)) : 5;
             const r = await this.qzone.getFeeds(num);
             if (!r.ok) return `获取动态列表失败：${r.error ?? '未知错误'}`;
-            return `最近 ${num} 条动态：\n${JSON.stringify(r.feeds ?? []).slice(0, 2000)}`;
+            return `最近 ${num} 条动态：\n${JSON.stringify(r.feeds ?? []).slice(0, 2000)}\n（每条含 tid/uin，可用 qq_qzone(action=reply, tid=该条tid) 对好友动态发表评论；SnowLuma 未提供读取评论的接口，故此处不含评论内容）`;
           }
           case 'status': {
             const s = this.qzone.status();

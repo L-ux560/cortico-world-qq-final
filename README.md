@@ -259,7 +259,7 @@ interface VoiceProvider {
 - `qq_qzone（action=post）`：发表 QQ 空间动态（说说）。参数 `content`（正文，必填，由模型自行生成后传入）、`topic`（话题）、`images`（图片数组，仅限 http(s)/base64）、`permission`（可见权限 `ugc_right`，默认 1=公开）。后台自动冒泡由 `qzone.tickSec`/`chancePerTick` 触发主模型生成并发布，工具本身不自动生成文案。
 - `qq_qzone（action=delete）`：删除指定 `tid` 的动态。
 - `qq_qzone（action=reply）`：对某条动态发表评论（`tid` + `content`，`comment_id` 可留空；NapCat/SnowLuma 仅支持对整个动态评论，不支持按评论楼中楼回复）。
-- `qq_qzone（action=feeds）`：拉取自己的空间动态列表（`num`，默认 5）。
+- `qq_qzone（action=feeds）`：拉取 QQ 空间好友动态（feed）列表（`num`，默认 5）。返回每条动态的 `tid`（=feed 句柄 `key`）、`uin`、`nickname`、`time`、`text`（HTML 已剥为纯文本）；可直接把返回的 `tid` 传给 `action=reply` 对好友动态发表评论。
 - `qq_qzone（action=status）`：返回空间功能开关、今日已发数/配额、待回评等状态。
 - 群聊发言限速 / 话题防死循环在 `qq_send` 发送环节统一生效：当某群达到窗口上限，或某会话 bot 连续发言超限/对方久未接话时，`qq_send` 会返回「未能发送：…（发言频率已达上限 / 话题自动收尾）」而不是真正发出。这是正常节流，不是报错。
 - **语音工具 / 命令**：
@@ -379,5 +379,5 @@ interface VoiceProvider {
 - 辅助视觉默认关闭。开启需自备一个 OpenAI 兼容 VLM 服务：在配置里填好 `vision.endpoint` / `vision.apiKeySecret` / `vision.model` 三项（密钥值放部署密钥库）。注意这与默认开启的「图片作为模型附件」是**两条看图的路**，同时开会重复花钱——主模型本身能看图时，关掉辅助视觉即可。
 - QQ 空间功能依赖 NapCat 的 `send_qzone_msg` / `delete_qzone_msg`；部分 NapCat 版本未暴露空间 API，开启后调用会失败（可在控制台看错误）。
 - 回评 action 名（NapCat/SnowLuma 为 `comment_qzone`，留 `auto` 即用内置默认）按版本不同可能变化，失败请在控制台改 `qzone.commentAction`。
-- `qq_qzone（action=feeds）` 拉取列表为 best-effort，取决于 NapCat/SnowLuma 是否实现 `get_qzone_feeds`；取不到时返回空。
+- `qq_qzone（action=feeds）` 返回好友动态正文，**不含评论**：当前协议端（SnowLuma/NapCat）未提供「读取评论」的接口（仅 `comment_qzone` 发表评论、自家说说 `get_qzone_msg_list` 带 `comment_num` 计数），故 `feeds` 只能拿到动态文本与句柄。读取某条动态的全部评论需协议端侧补齐 detail/get_comment 能力。feed 句柄字段在协议端叫 `key`，本扩展已映射为工具里的 `tid`。
 - 动态/评论文案由主模型（部署的 provider）生成，无独立配置项；开启自动动态/自动评论只需在控制台打开对应开关（需重启生效），由后台 tick / 评论事件触发主模型经本工具发布。

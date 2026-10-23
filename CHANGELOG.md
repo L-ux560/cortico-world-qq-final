@@ -2,6 +2,15 @@
 
 本文件记录 cortico-world-qq-final 每个版本的改动，供扩展市场的「更新说明」直接读取。
 
+## 0.6.19
+
+- 修复 QQ空间（qzone）所有功能「无返回值」的致命 bug（用户实测反馈：发动态/拉动态/评论/删除全部拿不到结果）。
+  - 根因：`driver.callApi` 已在收包处把 OneBot 回包的 `data` 字段解包（成功 resolve `msg.data`、失败 `reject`），但 `qzone.ts` 仍按旧约定访问 `res.data` 与 `res.error`。于是 `res` 本身就是 data、`res.data` 变成 `data.data`（空），且失败时被 reject 而非返回 `{error}`，导致 `post`/`getFeeds`/`replyComment`/`delete` 全部无返回值甚至 `null.data` 抛错。
+  - 修复：`qzone.ts` 四个 callApi 调用改为直接使用已解包的返回值，并用 `try/catch` 捕获 `reject` 转成 `{ok:false, error}`。
+  - 附带：`getFeeds` 现正确返回真实 feed（剥 HTML → 纯文本），并把协议端的 feed 句柄字段 `key` 映射为工具里的 `tid`，供 `action=reply` 对好友动态评论。
+  - 已知限制（协议端）：SnowLuma/NapCat 当前**未提供读取评论的接口**（仅有发表评论 `comment_qzone`、自家说说 `get_qzone_msg_list` 带 `comment_num` 计数），故 `feeds` 返回动态正文但不含评论内容；读取某条动态的全部评论需协议端侧补齐 detail/get_comment 能力。
+  - 同步 README 与代码（用户约定）。
+
 ## 0.6.18
 
 - 重发 0.6.17 的内容（0.6.17 在 npm 端发布时进入 staged 卡死状态、tarball 不可取，无法覆盖重发，故升一版）。代码与 0.6.17 完全一致。
