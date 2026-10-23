@@ -2339,19 +2339,21 @@ export class QQWorld implements World {
       description:
         'QQ 空间动态系列（用一个 action 选子功能）：' +
         'post=发一条动态（说说，content 必填，可附图 images / 权限 permission）；' +
-        'delete=删除一条动态（tid）；reply=对一条动态发表评论（NapCat/SnowLuma 仅支持对整个动态评论，tid+content，comment_id 可不填）；' +
-        'feeds=查看自己的动态列表（num）；status=查看发布器状态（开关/配额/最近动态 tid）。' +
+        'delete=删除一条动态（tid）；reply=对一条动态发表评论（NapCat/SnowLuma 仅支持对整个动态评论，tid+content，comment_id 可不填；回复某条评论时在 content 里 @对方昵称 即可）；' +
+        'detail=查看一条动态的详情与全部评论（tid，uin=动态作者的QQ号，来自 feeds 返回）；' +
+        'feeds=查看好友动态列表（num）；status=查看发布器状态（开关/配额/最近动态 tid）。' +
         'content 必须由你（主模型）显式给出：按"最近聊天 + 真实看法"以第一人称写，自然有梗，1-3 句；' +
         '不要空泛、不要"我帮你记下了"这类托管语气。',
       parameters: {
         type: 'object',
         properties: {
-          action: { type: 'string', enum: ['post', 'delete', 'reply', 'feeds', 'status'], description: '子功能：post 发动态 / delete 删动态 / reply 回评论 / feeds 列动态 / status 看状态。' },
+          action: { type: 'string', enum: ['post', 'delete', 'reply', 'detail', 'feeds', 'status'], description: '子功能：post 发动态 / delete 删动态 / reply 回评论 / detail 查动态详情与评论 / feeds 列动态 / status 看状态。' },
           content: { type: 'string', description: '【post】动态正文（必填）：以第一人称写，结合最近聊天与记忆发表真实看法/吐槽/简介/心情。' },
           topic: { type: 'string', description: '可选方向提示，如"吐槽最近的天气""介绍一下小明"。' },
           images: { type: 'array', items: { type: 'string' }, description: '【post】附图链接数组（仅支持 http(s):// 与 base64://；不支持本机文件）。' },
           permission: { type: 'number', description: '【post】可见权限 ugc_right，默认 1=公开。' },
-          tid: { type: 'string', description: '【delete/reply】动态 tid（来自 post 返回或 status 最近列表）。' },
+          tid: { type: 'string', description: '【delete/reply/detail】动态 tid（来自 feeds 返回、post 返回或 status 最近列表）。' },
+          uin: { type: 'number', description: '【detail】动态作者（贴主）的 QQ 号，来自 feeds 返回的 uin；查好友动态详情时必填，自家动态可省略。' },
           comment_id: { type: 'string', description: '【reply】评论 id（可选；NapCat/SnowLuma 仅支持对整个动态发表评论，comment_id 不会被使用）。' },
           num: { type: 'number', description: '【feeds】返回条数，默认 5。' },
         },
@@ -2396,7 +2398,19 @@ export class QQWorld implements World {
             const num = typeof args.num === 'number' && Number.isFinite(args.num) ? Math.max(1, Math.min(50, args.num)) : 5;
             const r = await this.qzone.getFeeds(num);
             if (!r.ok) return `获取动态列表失败：${r.error ?? '未知错误'}`;
-            return `最近 ${num} 条动态：\n${JSON.stringify(r.feeds ?? []).slice(0, 2000)}\n（每条含 tid/uin，可用 qq_qzone(action=reply, tid=该条tid) 对好友动态发表评论；SnowLuma 未提供读取评论的接口，故此处不含评论内容）`;
+            return `最近 ${num} 条动态：\n${JSON.stringify(r.feeds ?? []).slice(0, 2000)}\n（每条含 tid/uin；用 qq_qzone(action=reply, tid=该条tid) 对好友动态发表评论；用 qq_qzone(action=detail, tid=该条tid, uin=该条uin) 查看该动态的详情与全部评论）`;
+          }
+          case 'detail': {
+            const tid = String(args.tid ?? '');
+            if (!tid) return '缺少 tid（动态 id，来自 feeds 返回）。';
+            const uin = typeof args.uin === 'number' && Number.isFinite(args.uin) && args.uin > 0 ? args.uin : undefined;
+            const r = await this.qzone.getDetail(tid, uin);
+            if (!r.ok) return `获取详情失败：${r.error ?? '未知错误'}`;
+            const d = r.detail!;
+            const comments = d.comments.length
+              ? d.comments.map((c) => `- ${c.name}(uin:${c.uin})：${c.content}${c.replies?.length ? ` ↩ 回复：${c.replies.map((x) => `${x.name}(uin:${x.uin})：${x.content}`).join('；')}` : ''}`).join('\n')
+              : '（暂无评论）';
+            return `动态详情 tid=${d.tid}：\n${d.content}\n评论数 ${d.commentNum}：\n${comments}\n（回复评论：用 qq_qzone(action=reply, tid=本动态tid, content)，content 里 @对方昵称 即可，评论者 uin 已在上面）`;
           }
           case 'status': {
             const s = this.qzone.status();

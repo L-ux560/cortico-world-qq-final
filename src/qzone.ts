@@ -61,6 +61,24 @@ interface QZoneState {
 
 export type QZonePostResult = { ok: true; tid?: string; text?: string } | { ok: false; error: string };
 
+/** get_qzone_msg_detail 返回的单条评论/回复（已规整、剥内联 @ 标记）。 */
+export interface QZoneCommentItem {
+  commentId: string;
+  uin: string;
+  name: string;
+  time: number;
+  content: string;
+  replies?: QZoneCommentItem[];
+}
+
+/** get_qzone_msg_detail 返回的动态详情（已规整，供模型省 token 消费）。 */
+export interface QZonePostDetail {
+  tid: string;
+  content: string;
+  commentNum: number;
+  comments: QZoneCommentItem[];
+}
+
 export class QZonePoster {
   private readonly cfg: QZoneConfig;
   private readonly log: (...a: unknown[]) => void;
@@ -173,6 +191,61 @@ export class QZonePoster {
     }
     this.log.info('replied comment', { commentId, tid });
     return { ok: true };
+  }
+
+  /**
+   * 拉取一条动态的详情与全部评论（SnowLuma `get_qzone_msg_detail`；NapCat 不一定提供，失败会返回 error）。
+   * @param tid 动态 id（来自 feeds 返回或 post 回执）
+   * @param uin 动态作者（贴主）QQ 号，来自 feeds 返回；查好友动态时必传，自家动态可省略。
+   */
+  async getDetail(tid: string, uin?: number): Promise<{ ok: boolean; detail?: QZonePostDetail; error?: string }> {
+    if (!this.cfg.enabled) return { ok: false, error: 'QQ空间未启用' };
+    const tidStr = String(tid ?? '').trim();
+    if (!tidStr) return { ok: false, error: '缺少 tid（动态 id，来自 feeds 返回）。' };
+    const params: Record<string, unknown> = { tid: tidStr };
+    const u = Number(uin);
+    if (Number.isFinite(u) && u > 0) params.target_uin = u;
+    let raw: unknown;
+    try {
+      raw = await this.callApi('get_qzone_msg_detail', params);
+    } catch (e) {
+      return { ok: false, error: `获取动态详情失败：${e instanceof Error ? e.message : String(e)}` };
+    }
+    return { ok: true, detail: QZonePoster.normalizeDetail(raw, tidStr) };
+  }
+
+  /** 把 get_qzone_msg_detail 的返回规整成省 token 的结构；字段缺失时给默认值（协议端字段随版本可能变化）。 */
+  private static normalizeDetail(raw: unknown, tid: string): QZonePostDetail {
+    const d = (raw ?? {}) as Record<string, unknown>;
+    const pickItems = (list: unknown): QZoneCommentItem[] => {
+      if (!Array.isArray(list)) return [];
+      return list.map((it) => {
+        const c = (it ?? {}) as Record<string, unknown>;
+        const item: QZoneCommentItem = {
+          commentId: String(c.comment_id ?? c.commentId ?? ''),
+          uin: String(c.uin ?? ''),
+          name: String(c.name ?? '').trim(),
+          time: Number(c.time ?? 0),
+          content: QZonePoster.humanizeAtMarks(String(c.content ?? '')),
+        };
+        const replies = pickItems(c.replies);
+        if (replies.length) item.replies = replies;
+        return item;
+      });
+    };
+    return {
+      tid: String(d.tid ?? tid),
+      content: typeof d.content === 'string' ? d.content : '',
+      commentNum: Number(d.comment_num ?? 0),
+      comments: pickItems(d.comments),
+    };
+  }
+
+  /** 把评论里 QQ 空间的内联 @ 标记（@{uin:xxx,nick:yyy,...}）转成可读的 "@yyy(uin:xxx)"，方便模型直接看懂要 @ 谁。 */
+  private static humanizeAtMarks(text: string): string {
+    return text
+      .replace(/@\{[^}]*?uin:([^,}]+)[^}]*?nick:([^,}]+)[^}]*?\}/g, (_m, u, n) => `@${String(n).trim()}(uin:${String(u).trim()})`)
+      .replace(/@\{[^}]*?nick:([^,}]+)[^}]*?uin:([^,}]+)[^}]*?\}/g, (_m, n, u) => `@${String(n).trim()}(uin:${String(u).trim()})`);
   }
 
   async getFeeds(num: number): Promise<{ ok: boolean; feeds?: unknown[]; hasMore?: boolean; error?: string }> {

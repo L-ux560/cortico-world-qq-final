@@ -2,6 +2,15 @@
 
 本文件记录 cortico-world-qq-final 每个版本的改动，供扩展市场的「更新说明」直接读取。
 
+## 0.6.22
+
+- 新增 `qq_qzone（action=detail）`：查看一条动态的详情与全部评论（用户实测反馈 SnowLuma 有 `get_qzone_msg_detail` 接口，推翻 0.6.19「协议端无读评论接口」的判断——基于旧 bundle 静态分析有误，致歉）。
+  - `qzone.ts` 新增 `getDetail(tid, uin?)`：调 `get_qzone_msg_detail`（参数 `{tid, target_uin}`；查好友动态时 uin 必传，自家动态可省略），带类型/值校验 + try/catch（driver 已解包）。
+  - 返回规整省 token：`{tid, content, commentNum, comments[{commentId,uin,name,time,content,replies[]}]}`；评论里 QQ 空间的内联 @ 标记 `@{uin:xxx,nick:yyy,...}` 自动转成可读的 `@yyy(uin:xxx)`。
+  - `world.ts` 工具 enum 加 `detail`、新增 `uin` 参数；`case 'detail'` 把评论渲染成 `名字(uin:xxx)：内容（↩ 回复：…）` 的可读文本；引导模型用 `action=reply` + content 里 @对方昵称 回复评论（SnowLuma 的 comment_qzone 仅支持对整个动态评论）。
+  - `feeds` 输出提示更新：tid/uin 可接 `action=detail` 查评论。
+  - README：特性表/工具列表加 detail；**修正 0.6.19 写错的已知限制**（SnowLuma 实际有读评论接口 `get_qzone_msg_detail`；NapCat 不一定提供）。
+
 ## 0.6.21
 
 - 修复主动说话（proactive）四处 bug（用户实测反馈，原报于 0.6.5，0.6.20 复核仍存在）：

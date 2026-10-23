@@ -25,7 +25,7 @@ Cortico 的 **QQ（OneBot v11 / NapCat）** World 扩展。以 `fat-fish` 仓库
 | 通知事件 | 撤回/退群等 | ✅ 增量吸收 | recall / member / poke / emoji |
 | 被动视觉(VLM) | — | ✅ 增量吸收（默认关） | 可选 OpenAI 兼容端点描述图片 |
 | 历史查询 | — | ✅ 增量吸收 | `qq_history（action=recent）` / `qq_history（action=search）` |
-| QQ 空间动态（说说） | — | ✅ 增量吸收 | 自动/手动发表、附图、回评、删除（`qq_qzone（action=post/delete/reply/feeds/status）`） |
+| QQ 空间动态（说说） | — | ✅ 增量吸收 | 自动/手动发表、附图、回评、查看评论、删除（`qq_qzone（action=post/delete/reply/detail/feeds/status）`） |
 | 群聊发言频率限制 | — | ✅ 增量吸收 | 每个群在滑动窗口内可发消息总量的硬上限（含主动与回复），防刷屏 |
 | 话题自动结束 / 防死循环 | — | ✅ 增量吸收 | 单会话 bot 连续发言超上限、或对方长时间静默则自动收尾；主动说话还按话题相似度去重，防反复换汤不换药 |
 | 情绪系统（全局心情） | `emotion.py` | ➡️ 已拆到 `cortico-bot-qq-persona` | 情绪/好感度/外号三块 bot 内部状态自 `0.5.0` 起迁移到独立 Persona 扩展 `cortico-bot-qq-persona`，装它即可获得 `qq_mood` / `qq_affinity_*` / `qq_alias_*` 工具与系统前缀注入 |
@@ -258,8 +258,9 @@ interface VoiceProvider {
 - `qq_reminder（action=cancel）`：取消一条提醒（`id` 或 `all=true` 取消全部）。
 - `qq_qzone（action=post）`：发表 QQ 空间动态（说说）。参数 `content`（正文，必填，由模型自行生成后传入）、`topic`（话题）、`images`（图片数组，仅限 http(s)/base64）、`permission`（可见权限 `ugc_right`，默认 1=公开）。后台自动冒泡由 `qzone.tickSec`/`chancePerTick` 触发主模型生成并发布，工具本身不自动生成文案。
 - `qq_qzone（action=delete）`：删除指定 `tid` 的动态。
-- `qq_qzone（action=reply）`：对某条动态发表评论（`tid` + `content`，`comment_id` 可留空；NapCat/SnowLuma 仅支持对整个动态评论，不支持按评论楼中楼回复）。
-- `qq_qzone（action=feeds）`：拉取 QQ 空间好友动态（feed）列表（`num`，默认 5）。返回每条动态的 `tid`（=feed 句柄 `key`）、`uin`、`nickname`、`time`、`text`（HTML 已剥为纯文本）；可直接把返回的 `tid` 传给 `action=reply` 对好友动态发表评论。
+- `qq_qzone（action=reply）`：对某条动态发表评论（`tid` + `content`，`comment_id` 可留空；NapCat/SnowLuma 仅支持对整个动态评论，不支持按评论楼中楼回复。要回复某条评论时，在 `content` 里 @对方昵称 发在该动态下即可）。
+- `qq_qzone（action=detail）`：查看一条动态的详情与全部评论（`tid` + `uin`=动态作者 QQ 号，均来自 `feeds` 返回；自家动态 `uin` 可省略）。评论已规整为 `{commentId, uin, name, time, content, replies[]}`，内联 @ 标记转为可读的 `@昵称(uin:xxx)`；模型拿到评论者 uin 后用 `action=reply` + content 里 @对方 即可回复。依赖 SnowLuma `get_qzone_msg_detail`（NapCat 不一定提供，失败会返回 error）。
+- `qq_qzone（action=feeds）`：拉取 QQ 空间好友动态（feed）列表（`num`，默认 5）。返回每条动态的 `tid`（=feed 句柄 `key`）、`uin`、`nickname`、`time`、`text`（HTML 已剥为纯文本）；把 `tid`/`uin` 传给 `action=detail` 看评论、传给 `action=reply` 发评论。
 - `qq_qzone（action=status）`：返回空间功能开关、今日已发数/配额、待回评等状态。
 - 群聊发言限速 / 话题防死循环在 `qq_send` 发送环节统一生效：当某群达到窗口上限，或某会话 bot 连续发言超限/对方久未接话时，`qq_send` 会返回「未能发送：…（发言频率已达上限 / 话题自动收尾）」而不是真正发出。这是正常节流，不是报错。
 - **语音工具 / 命令**：
@@ -379,5 +380,5 @@ interface VoiceProvider {
 - 辅助视觉默认关闭。开启需自备一个 OpenAI 兼容 VLM 服务：在配置里填好 `vision.endpoint` / `vision.apiKeySecret` / `vision.model` 三项（密钥值放部署密钥库）。注意这与默认开启的「图片作为模型附件」是**两条看图的路**，同时开会重复花钱——主模型本身能看图时，关掉辅助视觉即可。
 - QQ 空间功能依赖 NapCat/SnowLuma 的 `send_qzone_msg` / `delete_qzone_msg` / `get_qzone_feeds` / `comment_qzone`；部分协议端版本未暴露空间 API，开启后调用会失败（可在控制台看错误）。
 - 回评 action 名（NapCat/SnowLuma 为 `comment_qzone`，留 `auto` 即用内置默认）按版本不同可能变化，失败请在控制台改 `qzone.commentAction`。
-- `qq_qzone（action=feeds）` 返回好友动态正文，**不含评论**：当前协议端（SnowLuma/NapCat）未提供「读取评论」的接口（仅 `comment_qzone` 发表评论、自家说说 `get_qzone_msg_list` 带 `comment_num` 计数），故 `feeds` 只能拿到动态文本与句柄。读取某条动态的全部评论需协议端侧补齐 detail/get_comment 能力。feed 句柄字段在协议端叫 `key`，本扩展已映射为工具里的 `tid`。
+- `qq_qzone（action=feeds）` 返回好友动态正文（不含评论）；用 `action=detail`（`tid`+`uin`）拉取单条动态的全部评论——走 SnowLuma 的 `get_qzone_msg_detail`（用户实测可用；NapCat 不一定提供该接口，失败时 detail 会返回 error 提示）。feed 句柄字段在协议端叫 `key`，本扩展已映射为工具里的 `tid`。
 - 动态/评论文案由主模型（部署的 provider）生成，无独立配置项；开启自动动态/自动评论只需在控制台打开对应开关（需重启生效），由后台 tick / 评论事件触发主模型经本工具发布。
