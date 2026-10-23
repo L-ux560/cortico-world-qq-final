@@ -2,6 +2,13 @@
 
 本文件记录 cortico-world-qq-final 每个版本的改动，供扩展市场的「更新说明」直接读取。
 
+## 0.6.20
+
+- 修复 README/代码不同步（用户约定 README 须与代码一致）：
+  - `config.ts` qzone.permission schema 原 `maximum: 10`，但代码合法集为 `{1,4,16,64,128}`（见 `qzone.ts` resolveUgcRight），导致用户在控制台设不了 `64=仅自己 / 128=黑名单`；改为 `maximum: 128` 并补全合法值说明。
+  - `world.ts` envPrompt 内嵌文案仍写旧工具名 `qq_qzone_post/delete/reply/status`，但当前是单一 `qq_qzone` 工具 + `action` 参数，会误导模型调用不存在的工具；改为 `qq_qzone(action=post/delete/reply/feeds/status)` 并去掉不实的"@人"。
+  - README 特性表去掉 qq_qzone 不支持的"@人"；已知限制补齐 4 个真实 qzone action（send_qzone_msg / delete_qzone_msg / get_qzone_feeds / comment_qzone）。
+
 ## 0.6.19
 
 - 修复 QQ空间（qzone）所有功能「无返回值」的致命 bug（用户实测反馈：发动态/拉动态/评论/删除全部拿不到结果）。

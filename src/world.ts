@@ -3055,7 +3055,7 @@ export class QQWorld implements World {
     const nowStr = this.nowText();
     const festivalLine = this.festivalLine();
     const qzoneLine = this.qzone
-      ? '已开启 QQ 空间动态能力：你可以用 qq_qzone_post 以第一人称发一条动态（说说），按最近聊天与记忆发表对某人/某事的真实看法、吐槽、安利或简介，可附图与 @人；qq_qzone_delete 删除动态；qq_qzone_reply 回复评论；qq_qzone_status 看状态。也可以在对话里自然地说「帮我发条空间动态说说今天…」来触发。'
+      ? '已开启 QQ 空间动态能力：你可以用 qq_qzone(action=post) 以第一人称发一条动态（说说），按最近聊天与记忆发表对某人/某事的真实看法、吐槽、安利或简介，可附图；qq_qzone(action=delete) 删除动态；qq_qzone(action=reply) 回复评论；qq_qzone(action=feeds) 看好友动态；qq_qzone(action=status) 看状态。也可以在对话里自然地说「帮我发条空间动态说说今天…」来触发。'
       : 'QQ 空间动态未开启（如需请在控制台开 worlds.qqbot.qzone.enabled 并重启）。';
     const gs = this.config.groupSpeak;
     const groupSpeakLine = gs.enabled
