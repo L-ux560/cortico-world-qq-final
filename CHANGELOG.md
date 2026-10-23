@@ -2,6 +2,15 @@
 
 本文件记录 cortico-world-qq-final 每个版本的改动，供扩展市场的「更新说明」直接读取。
 
+## 0.6.21
+
+- 修复主动说话（proactive）四处 bug（用户实测反馈，原报于 0.6.5，0.6.20 复核仍存在）：
+  - Bug1「私聊 undefined」：`proactive.ts` 的 `label()` 读 `t.name`/`t.qq`，但 `world.ts proactiveTargets()` 只推 `{address,kind,label}`（无 name/qq）→ 拼出 `私聊 undefined`，主模型拼不出私聊地址。`proactiveTargets()` 现补 `name`/`qq`（取自 `conv.label`/`conv.id`）并过滤掉号码缺失的会话；`label()` 改为多级兜底（label/name/qq/address）。
+  - Bug2「空号码也进候选」：`proactiveTargets()` 现过滤 `id` 为空/`undefined`/`null` 的会话；新增 `usable(t)` 并在 `pick()`/`announceRoutine()` 候选过滤、`emit()` 开头跳过。
+  - Bug3「qq_proactive_status 抛 Cannot convert undefined or null to object」：handler 读 `s.perAddr`/`s.runState`/`s.dailyQuota`，但 `status()` 返回 `{enabled,dailyCount,quota,recent,targets}`。改用真实字段，不再崩溃。
+  - Bug4「qq_proactive_trigger 传字符串却签名要对象」：`trigger()` 现兼容 `string`（按 address 在监听列表里查找），手动触发不再静默失效。
+  - 附带：控制台状态灯 `主动` 原本读不存在的 `status().runState`（总显示"关"），改为 `enabled`；`proactive.ts` 失效的 `import { ActiveGroup, ActivePrivate } from './world.ts'`（world 未导出，契约脱节）改为显式 `ProactiveTarget` 接口。
+
 ## 0.6.20
 
 - 修复 README/代码不同步（用户约定 README 须与代码一致）：

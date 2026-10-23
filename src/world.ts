@@ -429,7 +429,7 @@ export class QQWorld implements World {
     this._pendingReplyConvs.add(address);
   }
 
-  /** 按 mode 过滤出可主动说话的监听会话。 */
+  /** 按 mode 过滤出可主动说话的监听会话；补 name/qq 并过滤掉号码缺失（address 不带有效数字）的会话。 */
   private proactiveTargets(): ProactiveTarget[] {
     const mode = this.config.proactive.mode;
     const out: ProactiveTarget[] = [];
@@ -437,7 +437,11 @@ export class QQWorld implements World {
       if (!c.active) continue;
       if (mode === 'private' && c.kind !== 'private') continue;
       if (mode === 'group' && c.kind !== 'group') continue;
-      out.push({ address: c.address, kind: c.kind, label: c.label });
+      const id = String((c as unknown as { id?: string | number }).id ?? '').trim();
+      const label = String(c.label ?? '').trim();
+      // 号码拿不到就不进候选，避免拼出 "私聊 undefined" 并发往无效会话。
+      if (!id || id === 'undefined' || id === 'null') continue;
+      out.push({ address: c.address, kind: c.kind as 'group' | 'private', label, name: label, qq: id });
     }
     return out;
   }
@@ -2308,12 +2312,15 @@ export class QQWorld implements World {
         const action = String(args.action ?? '');
         switch (action) {
           case 'status': {
-            const s = this.proactive.status(this.proactiveTargets().length);
-            const per = Object.entries(s.perAddr)
-              .map(([a, v]) => `- ${a}：态=${v.state} 未回复=${v.unreplied}${v.silentUntil ? ' 静默至=' + new Date(v.silentUntil).toISOString() : ''}`)
-              .join('\n') || '（无会话状态）';
-            const recent = s.recent.length ? s.recent.slice(-5).map((t, i) => `  ${i + 1}. ${t}`).join('\n') : '（暂无）';
-            return `主动说话：${s.runState}；今日 ${s.dailyCount}/${s.dailyQuota}；可主动会话 ${s.targets}\n会话状态：\n${per}\n最近主动说过：\n${recent}`;
+            const s = this.proactive.status();
+            const targets = Array.isArray(s.targets) ? s.targets : [];
+            const per = targets.length
+              ? targets.map((t) => `- ${t.kind}: ${t.address}`).join('\n')
+              : '（无监听会话）';
+            const recent = Array.isArray(s.recent) && s.recent.length
+              ? s.recent.slice(-5).map((t, i) => `  ${i + 1}. ${t}`).join('\n')
+              : '（暂无）';
+            return `主动说话：${s.enabled ? '开' : '关'}；今日 ${s.dailyCount ?? 0}/${s.quota ?? 0}；可主动会话 ${targets.length}\n会话状态：\n${per}\n最近主动说过：\n${recent}`;
           }
           case 'trigger': {
             const addr = typeof args.address === 'string' && args.address ? args.address : undefined;
@@ -2806,7 +2813,7 @@ export class QQWorld implements World {
         { label: '自身 QQ', value: this.identity?.selfId ?? '-', tone: 'on' },
         { label: '监听会话', value: this.convs.size, tone: 'on' },
         { label: '表情包', value: this.stickers?.size ?? 0, tone: 'on' },
-        { label: '主动', value: this.proactive?.status().runState ?? '关', tone: this.proactive?.status().enabled ? 'on' : 'plain' },
+        { label: '主动', value: this.proactive?.status().enabled ? '开' : '关', tone: this.proactive?.status().enabled ? 'on' : 'plain' },
         { label: '空间动态', value: this.qzone ? '开' : '关', tone: this.qzone ? 'on' : 'plain' },
         { label: '群限速', value: this.config.groupSpeak.enabled ? `开(${this.config.groupSpeak.maxPerWindow}/${this.config.groupSpeak.windowSec}s)` : '关', tone: this.config.groupSpeak.enabled ? 'on' : 'plain' },
         { label: '防死循环', value: this.config.antiLoop.enabled ? `开(≤${this.config.antiLoop.maxConsecutiveBotTurns})` : '关', tone: this.config.antiLoop.enabled ? 'on' : 'plain' },

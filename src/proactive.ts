@@ -9,10 +9,16 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Logger } from 'cortico/core/types.ts';
-import type { ActiveGroup, ActivePrivate } from './world.ts';
 import type { ProactiveConfig } from './config.ts';
 
-export type ProactiveTarget = ActiveGroup | ActivePrivate;
+/** 主动说话目标会话。由 world 的 proactiveTargets() 构造，含展示名 name 与号码 qq，避免拼出 "私聊 undefined"。 */
+export interface ProactiveTarget {
+  address: string;
+  kind: 'group' | 'private';
+  label: string;
+  name: string;
+  qq: string;
+}
 
 export interface RoutineConfig {
   enabled: boolean;
@@ -161,7 +167,23 @@ export class ProactiveSpeaker {
   }
 
   private label(t: ProactiveTarget): string {
-    return t.kind === 'group' ? `群「${t.name}」` : `私聊 ${t.name || (t as ActivePrivate).qq}`;
+    const anyT = t as unknown as { label?: string; name?: string; qq?: string; address?: string };
+    const shown = (anyT.label || anyT.name || '').toString().trim();
+    const qq = anyT.qq != null ? String(anyT.qq).trim() : '';
+    const shownOrId = shown || qq || (anyT.address || '').toString().trim();
+    return t.kind === 'group' ? `群「${shownOrId || '未知群'}」` : `私聊 ${shownOrId || '未知对象'}`;
+  }
+
+  /** 仅接受"地址有效且能展示"的会话，避免把空号码会话选为主动目标 / 发往无效地址。 */
+  private usable(t: ProactiveTarget): boolean {
+    const anyT = t as unknown as { label?: string; name?: string; qq?: string; address?: string };
+    const addr = (anyT.address || '').toString().trim();
+    if (!addr) return false;
+    const m = /^(private|group):(.+)$/.exec(addr);
+    if (!m) return false;
+    const id = m[2].trim();
+    if (!id || id === 'undefined' || id === 'null') return false;
+    return !!(anyT.label || anyT.name || anyT.qq);
   }
 
   private ensure(address: string): State {
@@ -212,7 +234,7 @@ export class ProactiveSpeaker {
       if (this.cfg.mode === 'private') return t.kind === 'private';
       if (this.cfg.mode === 'group') return t.kind === 'group';
       return true;
-    });
+    }).filter((t) => this.usable(t));
     if (!targets.length) return null;
     const now = this.now();
     const scored = targets.map((t) => {
@@ -271,6 +293,10 @@ export class ProactiveSpeaker {
 
   /** 主动说话（事件驱动）：交由主模型生成并发送。返回是否发出了请求。 */
   private emit(t: ProactiveTarget, forced: boolean): boolean {
+    if (!this.usable(t)) {
+      this.log.warn('目标不可用（缺名字/号码/地址），本轮跳过', { address: t.address, kind: t.kind });
+      return false;
+    }
     const s = this.ensure(t.address);
     s.lastSent = this.now();
     s.unreplied += 1;
@@ -296,7 +322,7 @@ export class ProactiveSpeaker {
       if (this.cfg.mode === 'private') return t.kind === 'private';
       if (this.cfg.mode === 'group') return t.kind === 'group';
       return true;
-    });
+    }).filter((t) => this.usable(t));
     for (const t of targets) {
       const sceneText = scene === 'sleep' ? '去睡觉' : scene === 'noon' ? '去午休/打盹' : '刚睡醒起床';
       const nudge =
@@ -309,9 +335,17 @@ export class ProactiveSpeaker {
     this.log.info('作息时段切换播报', { from: prev, to: seg });
   }
 
-  trigger(target?: ProactiveTarget): string {
-    const t = target ?? this.pick();
+  trigger(target?: ProactiveTarget | string): string {
+    let t: ProactiveTarget | null = null;
+    if (typeof target === 'string') {
+      const addr = target.trim();
+      t = this.getTargets().find((x) => x.address === addr) ?? null;
+      if (!t) return `（找不到地址为 ${addr} 的监听会话；只会从监听列表里挑）`;
+    } else {
+      t = target ?? this.pick();
+    }
     if (!t) return '（没有可选的目标会话，或当前不满足发言条件）';
+    if (!this.usable(t)) return `（${this.label(t)} 缺少名字/号码/地址，不触发主动说话）`;
     if (!this.canSpeak(t)) return `（${this.label(t)} 当前不满足发言条件/冷却/配额）`;
     this.emit(t, true);
     return `已请主模型生成并向 ${this.label(t)} 发送一条主动消息（内容由主模型决定）。`;
