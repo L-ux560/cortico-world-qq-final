@@ -69,10 +69,13 @@ test('表情包文件名解析不得逃出表情包目录', async () => {
   fs.mkdirSync(path.join(base, 'sub'), { recursive: true });
   fs.writeFileSync(path.join(base, 'cat.jpg'), 'x');
   fs.writeFileSync(path.join(base, 'sub', 'dog.png'), 'x');
+  fs.writeFileSync(path.join(base, 'sticker.gif'), 'x');
   fs.writeFileSync(path.join(root, 'secret.txt'), 'x');
 
   assert.ok(R(base, 'cat.jpg'), '普通文件名应放行');
   assert.ok(R(base, path.join('sub', 'dog.png')), '子目录应放行');
+  assert.equal(R(base, 'cat'), path.join(base, 'cat.jpg'), '省略扩展名应补全到实际图片');
+  assert.equal(R(base, 'sticker.jpg'), path.join(base, 'sticker.gif'), '错误扩展名应替换为实际图片');
 
   assert.equal(R(base, path.join('..', 'secret.txt')), null, '不得逃出目录');
   assert.equal(R(base, '..' + path.sep + '..' + path.sep + 'Windows' + path.sep + 'win.ini'), null);

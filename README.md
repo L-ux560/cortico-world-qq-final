@@ -374,7 +374,7 @@ interface VoiceProvider {
 - **合并转发消息（不伪造身份）**：`qq_forward_by_id` 工具可按消息编号把本 bot 已接收/发出的多条消息合成**一张**合并转发卡片发出（卡片由本 bot 发出，node 身份只能是 bot 自己；卡片内每条消息用文本标注原始发送者昵称+QQ号并保留原文内容，不伪造任何身份）。需先开启设置 `worlds.qqbot.forwardByMessageId`（默认关闭），且仅能转发本 bot 本地记录内、属于目标会话的消息编号；依赖 OneBot 的 `send_forward_msg` 与 `get_msg`（NapCat/Lagrange/SnowLuma 等主流 OneBot v11 实现大多支持）。受 OneBot 限制，合并卡片无法把 node 身份设成原始发送者，故用「文本标注来源」保留出处。
 - 群成员名片为空时尝试补一次 `get_group_member_info`，但离线名片仍以 NapCat 推送为准。
 - 引用回复走实时 `get_msg`（与 fat-fish 一致），需要 NapCat 暴露该 API；引用库外消息也能正确拉取。
-- 表情包图片通过 `[表情包:文件名]` 发送，文件需放在 `emojiDir` 配置目录（默认 `<扩展>/emoji`）；文件缺失则该标记被丢弃，不报错。
+- 表情包图片通过 `[表情包:文件名]` 发送，文件需放在 `emojiDir` 配置目录（默认 `<扩展>/emoji`）。文件名会先精确匹配；漏写或写错 `.gif`/`.png`/`.jpg`/`.jpeg`/`.webp` 扩展名时会自动尝试修正，仍找不到则该标记被丢弃，不报错。
 - 中文表情名（如 `[旺柴]`/`[笑哭]`）按 fat-fish 的 `FACE_MAP` 映射到 face id；未知方括号文本原样保留。
 - 系统表情标记 `[表情22：白眼]` / `[表情22:白眼]`（数字为 QQ face id，支持全角/半角冒号与可选空格）会被解析成真正的 `face` 段发送。早期版本只认半角冒号，bot 照着入站的全角冒号写法输出时会变成"不存在的表情"文本，已于 0.1.8 修复。
 - 辅助视觉默认关闭。开启需自备一个 OpenAI 兼容 VLM 服务：在配置里填好 `vision.endpoint` / `vision.apiKeySecret` / `vision.model` 三项（密钥值放部署密钥库）。注意这与默认开启的「图片作为模型附件」是**两条看图的路**，同时开会重复花钱——主模型本身能看图时，关掉辅助视觉即可。

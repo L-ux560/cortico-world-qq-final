@@ -13,7 +13,8 @@ import type { OneBotSegment } from './types.ts';
  *   1. 拒绝绝对路径与含 `..` 的名字；
  *   2. 解析后必须仍落在 emojiDir 之内（含符号链接指向的真实路径再验一次）；
  *   3. 必须是普通文件。
- * 任何一条不满足就当作「未配置/文件缺失」，静默丢弃该标记（与原有降级行为一致）。
+ * 精确文件名不存在时，会在同一目录内补全或替换常见图片扩展名；任何候选都不满足时，
+ * 当作「未配置/文件缺失」静默丢弃该标记（与原有降级行为一致）。
  */
 function resolveEmojiFile(emojiDir: string, fname: string): string | null {
   try {
@@ -24,23 +25,38 @@ function resolveEmojiFile(emojiDir: string, fname: string): string | null {
     if (unified.split(sep).some((seg) => seg === '..')) return null;
 
     const base = resolve(emojiDir);
-    const target = resolve(base, unified);
-    const rel = relative(base, target);
-    if (!rel || rel.startsWith('..') || isAbsolute(rel)) return null;
+    const candidates = [resolve(base, unified)];
+    const imageExtensions = ['.gif', '.png', '.jpg', '.jpeg', '.webp'];
+    const extension = /\.[a-z0-9]{2,5}$/i;
+    if (extension.test(unified)) {
+      // 模型有时会根据经验猜扩展名；保留原名优先，再尝试常见图片扩展名。
+      for (const ext of imageExtensions) {
+        const swapped = resolve(base, unified.replace(extension, ext));
+        if (!candidates.includes(swapped)) candidates.push(swapped);
+      }
+    } else {
+      // 索引里可能只保存了不带扩展名的 hash 文件名。
+      for (const ext of imageExtensions) candidates.push(resolve(base, unified + ext));
+    }
 
     // 符号链接再验一次真实路径，防止「目录内软链指向目录外」
-    let realBase = base;
-    let realTarget = target;
-    try {
-      realBase = realpathSync(base);
-      realTarget = realpathSync(target);
-    } catch {
-      return null; // 目录或文件不存在
-    }
-    const realRel = relative(realBase, realTarget);
-    if (!realRel || realRel.startsWith('..') || isAbsolute(realRel)) return null;
+    const realBase = realpathSync(base);
+    for (const target of candidates) {
+      const rel = relative(base, target);
+      if (!rel || rel.startsWith('..') || isAbsolute(rel)) continue;
 
-    return target;
+      let realTarget = '';
+      try {
+        realTarget = realpathSync(target);
+      } catch {
+        continue; // 当前候选不存在，继续尝试其它扩展名
+      }
+      const realRel = relative(realBase, realTarget);
+      if (!realRel || realRel.startsWith('..') || isAbsolute(realRel)) continue;
+
+      return target;
+    }
+    return null; // 所有候选都不存在或越界
   } catch {
     return null;
   }
@@ -137,7 +153,7 @@ export function renderSegmentsPlain(segments: OneBotSegment[] | string | undefin
 
 /**
  * 把待发送文本构建为 OneBot 发送段（对齐 fat-fish parse_reply_segments）：
- *   - [表情包:文件名] → image 段（本地文件，位于 emojiDir 下；文件缺失则丢弃，不报错）
+ *   - [表情包:文件名] → image 段（本地文件，位于 emojiDir 下；缺扩展名或写错常见扩展名时自动修正，仍找不到则丢弃）
  *   - [表情N] / [表情N:名称] → face 段
  *   - [中文表情名]（命中映射，如 [旺柴]/[笑哭]）→ face 段
  *   - @名字 / @QQ号 → at 段
