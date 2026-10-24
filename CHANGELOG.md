@@ -2,6 +2,10 @@
 
 本文件记录 cortico-world-qq-final 每个版本的改动，供扩展市场的「更新说明」直接读取。
 
+## 0.6.23
+
+- 安全修复：加群申请事件不再把申请人留言拼进 `origin: 'internal'` 的事件提示词。事件只提示有新的申请，详情改由 `qq_admin（action=join_list）` 查询。
+
 ## 0.6.22
 
 - 新增 `qq_qzone（action=detail）`：查看一条动态的详情与全部评论（用户实测反馈 SnowLuma 有 `get_qzone_msg_detail` 接口，推翻 0.6.19「协议端无读评论接口」的判断——基于旧 bundle 静态分析有误，致歉）。

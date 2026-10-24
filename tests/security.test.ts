@@ -247,3 +247,20 @@ test('密钥解析不得直查 process.env（统一走框架 secret）', async (
     );
   }
 });
+
+test('加群申请事件不得把申请留言拼进 internal 提示词', async () => {
+  const fs = await import('node:fs');
+  const src = fs.readFileSync(new URL('../src/world.ts', import.meta.url), 'utf8');
+  const start = src.indexOf('private async handleGroupRequest');
+  assert.ok(start > 0, '必须存在加群申请处理器');
+  const end = src.indexOf('\n  // ---- 事件处理 ----', start);
+  assert.ok(end > start, '无法截取加群申请处理器');
+  const body = src.slice(start, end);
+  const textAt = body.indexOf('text:');
+  assert.ok(textAt > 0, '加群申请事件必须有通知文本');
+  const textLine = body.slice(textAt, body.indexOf('\n', textAt));
+  assert.ok(textLine.includes('有新的加群请求'), '事件应只提示有新的加群请求');
+  assert.ok(!textLine.includes('comment'), '事件文本不得引用申请留言');
+  assert.ok(!textLine.includes('留言'), '事件文本不得出现留言原文');
+  assert.ok(textLine.includes('qq_admin（action=join_list）'), '应引导模型用管理工具查询详情');
+});

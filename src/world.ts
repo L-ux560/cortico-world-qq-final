@@ -1058,7 +1058,7 @@ export class QQWorld implements World {
   }
 
   // ---- 群管理员：待审进群请求缓存 ----
-  /** key=请求 flag（OneBot 事件唯一标识），value=加群请求上下文。供 qq_admin_join_* 工具读取与处理。 */
+  /** key=请求 flag（OneBot 事件唯一标识），value=加群请求上下文。供 qq_admin 的 join_* action 读取与处理。 */
   private pendingJoinRequests: Map<string, { flag: string; groupId: number; userId: number; comment: string; subType: string; ts: number }> = new Map();
 
   /**
@@ -1088,7 +1088,9 @@ export class QQWorld implements World {
         ts: eventTs(this.config.timezone),
         source: SOURCE,
         origin: 'internal',
-        text: `有人申请加入群 ${groupId}（QQ ${userId}，类型=${subType === 'invite' ? '邀请' : '主动申请'}），留言：${comment || '（无）'}。这是一条加群请求（flag=${flag}），需要你决定是否通过。可用 qq_admin_join_list 查看全部待审、qq_admin_join_approve 通过、qq_admin_join_reject 拒绝。`,
+        // 申请留言由外部用户控制，不能进入 origin=internal 的事件提示词；
+        // 详情由模型通过 qq_admin(action=join_list) 主动查询。
+        text: '有新的加群请求。请用 qq_admin（action=join_list）查看待审请求，再用 qq_admin（action=join_approve/join_reject）决定是否通过或拒绝。',
         senderKey: `group:${groupId}`,
         meta: { conv: `group:${groupId}`, role: 'system', requestFlag: flag },
       }, { trigger: 'piggyback' });
@@ -1105,7 +1107,7 @@ export class QQWorld implements World {
       this.enqueue(() => this.handleNotice(ev));
       return;
     }
-    // 加群请求事件（审核进群）：交给 handleGroupRequest 缓存，供 qq_admin_join_* 工具处理。
+    // 加群请求事件（审核进群）：交给 handleGroupRequest 缓存，供 qq_admin 的 join_* action 处理。
     if (ev.post_type === 'request') {
       this.enqueue(() => this.handleGroupRequest(ev));
       return;
